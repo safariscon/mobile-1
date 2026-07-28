@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Protect environment files
+**/.env
+**/.env.*
+!**/.env.example
+.expo-check/
+safariproject/

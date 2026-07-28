@@ -18,12 +18,49 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0754D7"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.safariscon.app",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SafarisCon to use your location to show directions from you to your paid booking service."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Safariscon to access your photos so you can upload business images."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SafarisCon to use your camera to scan booking QR codes for secure verification.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "51d4e64f-5338-4856-aee4-0d50b504d854"
+      }
     }
   }
 }

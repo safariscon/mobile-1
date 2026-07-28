@@ -1,0 +1,358 @@
+import { apiFetch, endpoints } from '../config/api';
+import i18n from '../i18n';
+
+const SERVICES_CACHE_TTL_MS = 60 * 1000;
+const servicesCache = new Map();
+const servicesRequests = new Map();
+const legacyServiceDetailsCache = new Map();
+
+function servicesCacheKey(page, limit) {
+  return `${page}:${limit}`;
+}
+
+export function getCachedServices({ page = 1, limit = 20 } = {}) {
+  const cached = servicesCache.get(servicesCacheKey(page, limit));
+  if (!cached || Date.now() - cached.loadedAt >= SERVICES_CACHE_TTL_MS) return null;
+  return cached.data;
+}
+
+function pickArray(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload?.hotels)) {
+    return payload.hotels;
+  }
+
+  if (Array.isArray(payload?.services)) {
+    return payload.services;
+  }
+
+  if (Array.isArray(payload?.data)) {
+    return payload.data;
+  }
+
+  if (Array.isArray(payload?.businesses)) {
+    return payload.businesses;
+  }
+
+  return [];
+}
+
+export function normalizePaginatedPayload(payload, legacyKey = 'items') {
+  const items = Array.isArray(payload?.items)
+    ? payload.items
+    : Array.isArray(payload?.[legacyKey])
+      ? payload[legacyKey]
+      : pickArray(payload);
+  return {
+    items,
+    pagination: payload?.pagination || {
+      page: 1,
+      limit: items.length || 20,
+      totalItems: items.length,
+      totalPages: items.length ? 1 : 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  };
+}
+
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '');
+}
+
+function labelFromSlug(value) {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  return value
+    .split('-')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function numberFrom(...values) {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return 0;
+}
+
+function imageFrom(item) {
+  const candidate = firstValue(
+    item.image,
+    item.imageUrl,
+    item.coverImage,
+    item.mainImage,
+    item.photo,
+    item.images?.[0],
+    item.photos?.[0],
+    item.gallery?.[0]
+  );
+
+  if (typeof candidate === 'string') {
+    return candidate;
+  }
+
+  return firstValue(candidate?.url, candidate?.secure_url, candidate?.path);
+}
+
+function optimizeImageUrl(image) {
+  const url = typeof image === 'string' ? image.trim() : '';
+  if (!url) return '';
+
+  if (url.includes('res.cloudinary.com') && url.includes('/upload/') && !url.includes('/upload/f_auto')) {
+    return url.replace('/upload/', '/upload/f_auto,q_auto,w_640,c_limit/');
+  }
+
+  if (url.includes('images.unsplash.com')) {
+    const [base, query = ''] = url.split('?');
+    const params = new URLSearchParams(query);
+    params.set('auto', 'format');
+    params.set('fit', 'crop');
+    params.set('w', '640');
+    params.set('q', '70');
+    return `${base}?${params.toString()}`;
+  }
+
+  return url;
+}
+
+export function normalizeService(item, index = 0) {
+  const title = firstValue(item.title, item.displayName, item.anonymousName, item.name, item.hotelName, item.businessName, item.serviceName, `${i18n.t('serviceDetails.service')} ${index + 1}`);
+  const rawCategory = firstValue(item.category, item.type, item.serviceType, item.businessType, i18n.t('serviceDetails.service'));
+  const category = labelFromSlug(rawCategory);
+  const city = firstValue(
+    item.generalLocation,
+    item.destinationLocation,
+    item.city,
+    item.district,
+    item.province,
+    item.serviceLocation?.district,
+    item.location?.district,
+    item.location?.sector,
+    item.location?.province
+  );
+  const location = firstValue(item.locationName, city, i18n.t('common.rwanda'));
+  const priceValue = firstValue(item.priceText, item.price, item.startingPrice, item.basePrice, item.minPrice, item.pricePerNight);
+  const price = typeof priceValue === 'number' && priceValue > 0 ? `RWF ${priceValue.toLocaleString()}` : firstValue(typeof priceValue === 'string' ? priceValue : '', i18n.t('serviceDetails.contactForPrice'));
+  const availableInventory = numberFrom(item.availableInventory, item.availableQuantity, item.quantityRemaining, item.inventory, item.availabilityTable?.rows?.length, 1);
+
+  return {
+    id: String(firstValue(item._id, item.id, item.slug, index)),
+    hotelId: String(firstValue(item.hotelId, item._id, item.id, item.slug, index)),
+    sourceType: item.sourceType || (item.hotelId ? 'service' : 'hotel'),
+    title,
+    category,
+    serviceCategory: rawCategory,
+    businessType: item.businessType,
+    district: firstValue(item.district, item.serviceLocation?.district, item.location?.district),
+    address: firstValue(item.address, item.fullAddress, item.serviceLocation?.fullAddress, item.contactDetails?.exactAddress),
+    destinationLocation: firstValue(item.destinationLocation, item.serviceLocation?.district, item.location?.district, city),
+    location,
+    generalLocation: firstValue(item.generalLocation, city, location),
+    description: firstValue(item.description, item.shortDescription, item.summary, i18n.t('serviceDetails.privacyDescription')),
+    price,
+    priceAmount: numberFrom(priceValue, item.startingPrice, item.basePrice, item.minPrice),
+    rating: numberFrom(item.rating, item.averageRating, item.reviewScore, 4.8),
+    isFeatured: Boolean(item.isFeatured || item.featured),
+    availableInventory,
+    deposit: firstValue(item.depositLabel, item.deposit, i18n.t('customerBookings.deposit')),
+    bookingMode: item.automaticBooking || item.bookingMode === 'automatic' ? i18n.t('serviceDetails.automaticBooking') : firstValue(item.bookingModeLabel, item.bookingMode, i18n.t('serviceDetails.manualQuote')),
+    availability: firstValue(item.availabilityLabel, item.availability, item.status, i18n.t('serviceDetails.available')),
+    image: optimizeImageUrl(imageFrom(item)) || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=640&q=70',
+    promotion: item.promotion || item.primaryService?.promotion || null,
+  };
+}
+
+function formatLabel(value, fallback = '') {
+  const label = labelFromSlug(String(value || '').replace(/_/g, '-'));
+  return label || fallback;
+}
+
+function formatMoney(value, currency = 'RWF') {
+  const amount = numberFrom(value);
+  return amount > 0 ? `${currency} ${amount.toLocaleString()}` : i18n.t('serviceDetails.contactForPrice');
+}
+
+function normalizeLegacyOption(row, service, index) {
+  const cells = row?.cells || {};
+  const price = numberFrom(cells.price, cells.amount, cells.rate, service.basePrice);
+  const currency = firstValue(cells.currency, 'RWF');
+  const inventory = numberFrom(cells.availability, cells.maximumCapacity, cells.capacity, service.availableQuantity, 1);
+  return {
+    id: String(firstValue(row?.id, `option-${index + 1}`)),
+    name: firstValue(cells.service, cells.name, cells.option, cells.title, service.title, service.name, i18n.t('serviceDetails.serviceOption')),
+    price,
+    priceText: firstValue(cells.priceText, formatMoney(price, currency)),
+    pricingType: formatLabel(firstValue(cells.priceType, cells.pricingType), i18n.t('serviceDetails.standard')),
+    durationUnit: firstValue(cells.durationUnit, cells.unit, 'booking'),
+    duration: firstValue(cells.maximumDuration, cells.duration, cells.nights, cells.hours, ''),
+    maximumCapacity: Math.max(1, inventory),
+    details: firstValue(cells.details, cells.description, service.description, ''),
+    amenities: Array.isArray(cells.amenities)
+      ? cells.amenities.filter(Boolean)
+      : String(cells.amenities || '').split(',').map((value) => value.trim()).filter(Boolean),
+    availabilityStatus: inventory > 0 ? i18n.t('serviceDetails.available') : formatLabel(service.inventoryStatus, i18n.t('serviceDetails.available')),
+  };
+}
+
+function normalizeLegacyServiceDetails(item, index = 0) {
+  const summary = normalizeService(item, index);
+  const rows = Array.isArray(item.availabilityTable?.rows) ? item.availabilityTable.rows : [];
+  const options = rows.length
+    ? rows.map((row, rowIndex) => normalizeLegacyOption(row, summary, rowIndex))
+    : [{
+        id: summary.id,
+        name: i18n.t('serviceDetails.serviceOption'),
+        price: summary.priceAmount,
+        priceText: summary.price,
+        pricingType: i18n.t('serviceDetails.standard'),
+        durationUnit: i18n.t('serviceDetails.use'),
+        duration: '',
+        maximumCapacity: Math.max(1, summary.availableInventory),
+        details: summary.description,
+        amenities: [],
+        availabilityStatus: summary.availability,
+      }];
+  const locationDetails = item.locationDetails || item.location || {};
+  const generalLocation = firstValue(
+    item.generalLocation,
+    [locationDetails.sector, locationDetails.district, locationDetails.province].filter(Boolean).join(', '),
+    summary.generalLocation
+  );
+
+  return {
+    ...summary,
+    name: summary.title,
+    images: Array.isArray(item.images) ? item.images.filter(Boolean) : [summary.image].filter(Boolean),
+    location: {
+      province: locationDetails.province || '',
+      district: locationDetails.district || '',
+      sector: locationDetails.sector || '',
+      generalLocation,
+    },
+    generalLocation,
+    seller: {
+      verified: item.approvalStatus === 'approved',
+      status: item.approvalStatus || 'pending',
+    },
+    availabilityStatus: formatLabel(firstValue(item.inventoryStatus, item.status), i18n.t('serviceDetails.available')),
+    pricingType: i18n.t('serviceDetails.standard'),
+    durationUnit: i18n.t('serviceDetails.use'),
+    maximumCapacity: Math.max(1, numberFrom(item.availableQuantity, item.quantityRemaining, summary.availableInventory, 1)),
+    options,
+    amenities: Array.isArray(item.amenities) ? item.amenities.filter(Boolean) : [],
+    bookingMode: item.bookingMode || 'manual',
+    bookingRules: item.bookingRules || {},
+    bookingForm: item.bookingForm || {},
+  };
+}
+
+async function fetchLegacyCatalog({ page, limit, signal }) {
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
+  const response = await apiFetch(`${endpoints.hotels}?${query}`, { signal, timeoutMs: 8000 });
+  if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
+  const payload = await response.json();
+  const paginated = normalizePaginatedPayload(payload, 'hotels');
+  const services = paginated.items.map((item, index) => {
+    const details = normalizeLegacyServiceDetails(item, index);
+    legacyServiceDetailsCache.set(details.id, details);
+    return normalizeService({ ...item, hotelId: details.hotelId, sourceType: 'hotel' }, index);
+  });
+  return { services, pagination: paginated.pagination };
+}
+
+export async function fetchServices({ page = 1, limit = 20, signal, force = false } = {}) {
+  const cacheKey = servicesCacheKey(page, limit);
+  const cached = getCachedServices({ page, limit });
+  if (!force && cached) return cached;
+  if (!force && servicesRequests.has(cacheKey)) return servicesRequests.get(cacheKey);
+
+  const request = (async () => {
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
+    // A shared catalog request should finish even if the screen that started it
+    // unmounts, so another screen can reuse the same result.
+    const requestSignal = force ? signal : undefined;
+    let data;
+    try {
+      const response = await apiFetch(`${endpoints.services}?${query}`, { signal: requestSignal, timeoutMs: 8000 });
+      if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
+      const payload = await response.json();
+      const paginated = normalizePaginatedPayload(payload, 'services');
+      if (page === 1 && paginated.items.length === 0) {
+        data = await fetchLegacyCatalog({ page, limit, signal: requestSignal });
+      } else {
+        data = {
+          services: paginated.items.map((item, index) => {
+            if (item?.sourceType === 'hotel' || Array.isArray(item?.availabilityTable?.rows)) {
+              const details = normalizeLegacyServiceDetails(item, index);
+              legacyServiceDetailsCache.set(details.id, details);
+            }
+            return normalizeService(item, index);
+          }),
+          pagination: paginated.pagination,
+        };
+      }
+    } catch (error) {
+      data = await fetchLegacyCatalog({ page, limit, signal: requestSignal }).catch(() => { throw error; });
+    }
+    servicesCache.set(cacheKey, { data, loadedAt: Date.now() });
+    return data;
+  })();
+
+  servicesRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (servicesRequests.get(cacheKey) === request) servicesRequests.delete(cacheKey);
+  }
+}
+
+
+export async function fetchServiceDetails(serviceId) {
+  const cacheKey = String(serviceId);
+  const cachedLegacyDetails = legacyServiceDetailsCache.get(cacheKey);
+  if (cachedLegacyDetails) return cachedLegacyDetails;
+
+  const response = await apiFetch(endpoints.serviceDetails(serviceId), { timeoutMs: 15000 });
+
+  if (response.ok) {
+    const payload = await response.json();
+    return payload.service || payload;
+  }
+
+  await fetchLegacyCatalog({ page: 1, limit: 60 });
+  const details = legacyServiceDetailsCache.get(cacheKey);
+  if (details) return details;
+  throw new Error(i18n.t('backend.returned', { status: response.status }));
+}
+
+export async function submitBookingRequest(payload) {
+  const response = await apiFetch('/bookings/request', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(i18n.t('backend.returned', { status: response.status }));
+  }
+
+  return data;
+}
+
+
+

@@ -1,0 +1,58 @@
+import i18n from '../i18n';
+
+const mockServices = [
+  {
+    id: 'hotel-1',
+    title: 'Kigali Serena Stay',
+    category: i18n.t('mockServices.hotelCategory'),
+    location: i18n.t('mockServices.kigaliRwanda'),
+    generalLocation: i18n.t('mockServices.kigaliCityArea'),
+    description: i18n.t('mockServices.serenaDescription'),
+    price: 'RWF 80,000',
+    deposit: i18n.t('customerBookings.deposit'),
+    bookingMode: i18n.t('serviceDetails.automaticBooking'),
+    availability: i18n.t('mockServices.availableToday'),
+    image: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=900&q=80',
+  },
+  {
+    id: 'hotel-2',
+    title: 'Heaven Boutique Hotel',
+    category: i18n.t('mockServices.hotelCategory'),
+    location: i18n.t('mockServices.kigaliRwanda'),
+    generalLocation: i18n.t('mockServices.kigaliCityArea'),
+    description: i18n.t('mockServices.heavenDescription'),
+    price: 'RWF 70,000',
+    deposit: i18n.t('customerBookings.deposit'),
+    bookingMode: i18n.t('serviceDetails.manualQuote'),
+    availability: i18n.t('mockServices.adminApprovalRequired'),
+    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=900&q=80',
+  },
+  {
+    id: 'tour-1',
+    title: 'Volcanoes Adventure',
+    category: i18n.t('mockServices.toursCategory'),
+    location: i18n.t('mockServices.musanzeRwanda'),
+    generalLocation: i18n.t('mockServices.northernProvince'),
+    description: i18n.t('mockServices.volcanoesDescription'),
+    price: 'RWF 120,000',
+    deposit: i18n.t('customerBookings.deposit'),
+    bookingMode: i18n.t('serviceDetails.manualQuote'),
+    availability: i18n.t('mockServices.groupSlotsOpen'),
+    image: 'https://images.unsplash.com/photo-1516426122078-c23e76319801?w=900&q=80',
+  },
+  {
+    id: 'transport-1',
+    title: 'Private Airport Transfer',
+    category: i18n.t('mockServices.transportCategory'),
+    location: i18n.t('mockServices.kigaliRwanda'),
+    generalLocation: i18n.t('mockServices.airportArea'),
+    description: i18n.t('mockServices.transferDescription'),
+    price: 'RWF 25,000',
+    deposit: i18n.t('customerBookings.deposit'),
+    bookingMode: i18n.t('serviceDetails.automaticBooking'),
+    availability: i18n.t('mockServices.instantConfirmation'),
+    image: 'https://images.unsplash.com/photo-1549924231-f129b911e442?w=900&q=80',
+  },
+];
+
+export default mockServices;
