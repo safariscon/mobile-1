@@ -15,6 +15,14 @@ async function parseJson(response) {
   }
 }
 
+function backendError(response, data, fallback) {
+  const error = new Error(data?.message || fallback);
+  error.status = response.status;
+  error.code = data?.code;
+  error.data = data;
+  return error;
+}
+
 function isProvider(user) {
   return ['hotel', 'supplier'].includes(user?.role);
 }
@@ -136,13 +144,13 @@ export function AuthProvider({ children }) {
       const data = await parseJson(response);
 
       if (!response.ok) {
-        throw new Error(i18n.t('backend.loginFailed'));
+        throw backendError(response, data, i18n.t('backend.loginFailed'));
       }
 
       await saveSession(data.token, data.user);
-      return { success: true, user: data.user };
+      return { success: true, user: data.user, token: data.token };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
     } finally {
       setLoading(false);
     }
@@ -167,12 +175,15 @@ export function AuthProvider({ children }) {
       const data = await parseJson(response);
 
       if (!response.ok) {
-        throw new Error(i18n.t('backend.registrationFailed'));
+        throw backendError(response, data, i18n.t('backend.registrationFailed'));
       }
 
-      return { success: true, user: data.user };
+      if (data.token && data.user && data.emailVerification?.required !== true && data.user.emailVerified !== false) {
+        await saveSession(data.token, data.user);
+      }
+      return { success: true, user: data.user, token: data.token, emailVerification: data.emailVerification };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
     } finally {
       setLoading(false);
     }
@@ -199,18 +210,98 @@ export function AuthProvider({ children }) {
           sellerId,
           generatedPassword,
           newPassword,
+          confirmPassword: newPassword,
         }),
       });
       const data = await parseJson(response);
 
       if (!response.ok) {
-        throw new Error(i18n.t('backend.providerCompleteFailed'));
+        throw backendError(response, data, i18n.t('backend.providerCompleteFailed'));
       }
 
-      await saveSession(data.token, data.user);
-      return { success: true, user: data.user };
+      if (data.token && data.user && data.emailVerification?.required !== true && data.user.emailVerified !== false) {
+        await saveSession(data.token, data.user);
+      }
+      return { success: true, user: data.user, token: data.token, emailVerification: data.emailVerification };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyEmailOtp = async (email, otp) => {
+    setLoading(true);
+    try {
+      const response = await apiFetch('/auth/email/verify-otp', {
+        method: 'POST',
+        skipAuth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw backendError(response, data, i18n.t('backend.registrationFailed'));
+      if (data.token && data.user) await saveSession(data.token, data.user);
+      return { success: true, user: data.user, token: data.token };
+    } catch (error) {
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resendEmailOtp = async (email) => {
+    setLoading(true);
+    try {
+      const response = await apiFetch('/auth/email/resend-verification-otp', {
+        method: 'POST',
+        skipAuth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw backendError(response, data, data.message || 'Could not resend verification code.');
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const forgotPassword = async (email) => {
+    setLoading(true);
+    try {
+      const response = await apiFetch('/auth/forgot-password', {
+        method: 'POST',
+        skipAuth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw backendError(response, data, data.message || 'Could not send reset code.');
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetPassword = async (email, otp, newPassword) => {
+    setLoading(true);
+    try {
+      const response = await apiFetch('/auth/reset-password', {
+        method: 'POST',
+        skipAuth: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, newPassword }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) throw backendError(response, data, data.message || 'Could not reset password.');
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };
     } finally {
       setLoading(false);
     }
@@ -228,13 +319,17 @@ export function AuthProvider({ children }) {
     login,
     register,
     completeProviderRegistration,
+    verifyEmailOtp,
+    resendEmailOtp,
+    forgotPassword,
+    resetPassword,
     refreshUser,
     logout,
     isAuthenticated: !!user,
     isTourist: user?.role === 'tourist' || user?.role === 'customer',
     isSeller: isProvider(user),
     isAdmin: user?.role === 'admin',
-  }), [completeProviderRegistration, loading, login, logout, refreshUser, register, restoringSession, token, user]);
+  }), [completeProviderRegistration, forgotPassword, loading, login, logout, refreshUser, register, resendEmailOtp, resetPassword, restoringSession, token, user, verifyEmailOtp]);
 
   return (
     <AuthContext.Provider value={value}>

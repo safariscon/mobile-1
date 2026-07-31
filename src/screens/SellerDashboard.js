@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,7 @@ import { DateTimeField, MultilineField, NumberField, SelectField as ModalSelectF
 import ServiceLocationPicker from '../components/ServiceLocationPicker';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { RWANDA_DISTRICTS, RWANDA_PROVINCES, SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -121,6 +122,16 @@ async function readApiJson(response) {
   }
 }
 
+async function apiFetchFirst(paths, options) {
+  let lastResponse = null;
+  for (const path of paths) {
+    const response = await apiFetch(path, options);
+    lastResponse = response;
+    if (response.ok || ![404, 405].includes(response.status)) return response;
+  }
+  return lastResponse;
+}
+
 function getSaveErrorMessage(error, fallback) {
   const message = String(error?.message || '').trim();
   return message || fallback;
@@ -150,6 +161,9 @@ function validateBusinessForm(form, t) {
   if (!form.category.trim()) return t('seller.validation.categoryRequired');
   if (!form.serviceLocation.province.trim() || !form.serviceLocation.district.trim() || !form.serviceLocation.sector.trim()) {
     return t('seller.validation.locationRequired');
+  }
+  if (form.status === 'available' && !String(form.serviceLocation.fullAddress || '').trim() && (!form.serviceLocation.latitude || !form.serviceLocation.longitude)) {
+    return 'Exact location or map coordinates are required before a service can be available.';
   }
   if (!form.payoutDetails.accountName.trim() || !form.payoutDetails.accountNumber.trim()) {
     return t('seller.validation.payoutRequired');
@@ -225,7 +239,7 @@ export default function SellerDashboard({ tab }) {
   colors = themed.colors;
   styles = themed.styles;
   const { t } = useTranslation();
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, user } = useAuth();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -324,6 +338,17 @@ export default function SellerDashboard({ tab }) {
     }
   }, [tab, loadData]);
 
+  const realtimeRooms = useMemo(() => realtimeUserRooms(user, { business: true }), [user]);
+  const refreshFromRealtime = useCallback(() => {
+    loadData(true);
+  }, [loadData]);
+  useRealtimeRefresh({
+    enabled: isAuthenticated,
+    rooms: realtimeRooms,
+    events: ['booking:changed', 'service:changed', 'hotel:changed', 'notification:new'],
+    onRefresh: refreshFromRealtime,
+  });
+
   const onRefresh = () => {
     setRefreshing(true);
     loadData(true);
@@ -362,7 +387,7 @@ export default function SellerDashboard({ tab }) {
     setVerifiedBooking(null);
 
     try {
-      const response = await apiFetch('/hotel/bookings/verify-code', {
+      const response = await apiFetchFirst(['/seller/bookings/verify-code', '/hotel/bookings/verify-code'], {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -392,7 +417,7 @@ export default function SellerDashboard({ tab }) {
     setVerifySuccess('');
 
     try {
-      const response = await apiFetch('/hotel/bookings/complete-verified', {
+      const response = await apiFetchFirst(['/seller/bookings/complete-verified', '/hotel/bookings/complete-verified'], {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

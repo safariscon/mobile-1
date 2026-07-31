@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { fetchServices, getCachedServices } from '../api/services';
+import { useRealtimeRefresh } from '../lib/realtime';
+
+const CATALOG_EVENTS = ['catalog:changed', 'hotel:changed', 'service:changed', 'room:changed'];
 
 export default function useServices() {
   const cachedPage = getCachedServices();
@@ -33,6 +36,15 @@ export default function useServices() {
       subscription.remove();
     };
   }, [loadServices]);
+
+  const refreshFromRealtime = useCallback(() => {
+    loadServices({ force: true });
+  }, [loadServices]);
+
+  useRealtimeRefresh({
+    events: CATALOG_EVENTS,
+    onRefresh: refreshFromRealtime,
+  });
 
   return {
     services,

@@ -16,28 +16,38 @@ import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { languages, setAppLanguage } from '../i18n';
 import BookingQrScanner from '../components/BookingQrScanner';
+import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
 let styles;
 
-const ADMIN_TABS = [
-  ['businesses', 'admin.tabs.businesses'],
-  ['announcement', 'admin.tabs.announcement'],
-  ['booking-rules', 'admin.tabs.bookingRules'],
-  ['register-business', 'admin.tabs.addSeller'],
-  ['users', 'admin.tabs.users'],
-  ['services', 'admin.tabs.services'],
-  ['bookings', 'admin.tabs.bookings'],
-  ['rebook-requests', 'admin.tabs.rebookRequests'],
-  ['verification', 'admin.tabs.verification'],
-  ['revenue', 'admin.tabs.revenue'],
-  ['analytics', 'admin.tabs.analytics'],
-  ['storage', 'admin.tabs.storage'],
-  ['activity', 'admin.tabs.activity'],
-];
+const ADMIN_PAGE_META = {
+  businesses: {
+    title: 'Welcome admin',
+    description: 'Review businesses, providers, services, bookings, and marketplace operations from one mobile workspace.',
+    icon: 'shield',
+  },
+  services: { title: 'Services', description: 'Check published services, availability, booking modes, and catalog quality.', icon: 'layers' },
+  users: { title: 'Users', description: 'Manage customers, admins, and provider accounts in the marketplace.', icon: 'users' },
+  'register-business': { title: 'Service providers', description: 'Create provider accounts and share onboarding credentials.', icon: 'user-plus' },
+  bookings: { title: 'Bookings', description: 'Review customer booking requests, approvals, payments, and verification state.', icon: 'calendar' },
+  'rebook-requests': { title: 'Re-book requests', description: 'Manage re-booking, cancellation, refunds, and seller notification requests.', icon: 'repeat' },
+  verification: { title: 'Verify booking', description: 'Scan or enter booking verification tokens and codes.', icon: 'check-square' },
+  insights: { title: 'Insights', description: 'View analytics, revenue, conversion rates, and recent platform activity.', icon: 'bar-chart-2' },
+  notifications: { title: 'Notifications', description: 'Manage the announcement messages shown to public users.', icon: 'bell' },
+  settings: { title: 'Settings', description: 'Change app language, theme, booking mode, rules, and commission defaults.', icon: 'settings' },
+};
+
+function normalizeAdminTab(tab) {
+  if (tab === 'home') return 'businesses';
+  if (tab === 'stats') return 'insights';
+  return ADMIN_PAGE_META[tab] ? tab : 'businesses';
+}
 
 const DEFAULT_ANNOUNCEMENT = {
   enabled: true,
@@ -75,13 +85,15 @@ export default function AdminDashboard({ tab }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
-  const { t } = useTranslation();
-  const { token, isAuthenticated } = useAuth();
+  const { i18n, t } = useTranslation();
+  const { token, isAuthenticated, user } = useAuth();
+  const { mode, setThemeMode } = useTheme();
   const defaultMarketplaceSettings = useMemo(() => ({
     ...DEFAULT_SETTINGS,
     bookingRules: [t('admin.defaultRuleAccurate'), t('admin.defaultRuleBalance')],
   }), [t]);
-  const [activeTab, setActiveTab] = useState(tab === 'stats' ? 'analytics' : 'businesses');
+  const [activeTab, setActiveTab] = useState(() => normalizeAdminTab(tab));
+  const [languageOpen, setLanguageOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -106,10 +118,9 @@ export default function AdminDashboard({ tab }) {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [decision, setDecision] = useState({ totalPrice: '', commissionPercentage: '10', paymentReason: t('admin.defaultPaymentReason') });
   const [analytics, setAnalytics] = useState(null);
-  const [storage, setStorage] = useState(null);
 
   useEffect(() => {
-    setActiveTab(tab === 'stats' ? 'analytics' : 'businesses');
+    setActiveTab(normalizeAdminTab(tab));
   }, [tab]);
 
   const request = useCallback(async (path, options = {}) => {
@@ -124,6 +135,24 @@ export default function AdminDashboard({ tab }) {
     if (!response.ok) throw new Error(t('backend.returned', { status: response.status }));
     return data;
   }, [token]);
+
+  const requestFirst = useCallback(async (paths, options = {}) => {
+    let lastError = null;
+    for (const path of paths) {
+      const response = await apiFetch(path, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await readJson(response);
+      if (response.ok) return data;
+      lastError = new Error(data.message || t('backend.returned', { status: response.status }));
+      if (![404, 405].includes(response.status)) throw lastError;
+    }
+    throw lastError || new Error(t('admin.actionFailed'));
+  }, [t, token]);
 
   const loadData = useCallback(async (silent = false) => {
     if (!isAuthenticated || !token) return;
@@ -176,6 +205,17 @@ export default function AdminDashboard({ tab }) {
     loadData();
   }, [loadData]);
 
+  const realtimeRooms = useMemo(() => realtimeUserRooms(user, { admin: true }), [user]);
+  const refreshFromRealtime = useCallback(() => {
+    loadData(true);
+  }, [loadData]);
+  useRealtimeRefresh({
+    enabled: isAuthenticated,
+    rooms: realtimeRooms,
+    events: ['booking:changed', 'service:changed', 'hotel:changed', 'catalog:changed', 'notification:new'],
+    onRefresh: refreshFromRealtime,
+  });
+
   const refresh = () => {
     setRefreshing(true);
     loadData(true);
@@ -199,10 +239,10 @@ export default function AdminDashboard({ tab }) {
   };
 
   const reviewBusiness = (businessId, status) => runAction(
-    () => request(`/admin/businesses/${businessId}/verification`, {
+    () => requestFirst([`/admin/businesses/${businessId}/approval`, `/admin/businesses/${businessId}/verification`], {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(status === 'approved' ? { status, commissionPercentage: Number(marketplaceSettings.defaultCommissionPercentage || 10) } : { status }),
     }),
     status === 'approved' ? t('admin.businessPosted') : t('admin.businessRejected')
   );
@@ -322,15 +362,6 @@ export default function AdminDashboard({ tab }) {
 
   const handleQrScan = (data) => verifyBookingLookup(data);
 
-  const markCommissionCollected = (transaction) => runAction(
-    () => request(`/admin/transactions/${transaction._id}/commission`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commissionStatus: 'collected' }),
-    }),
-    t('admin.commissionCollected')
-  );
-
   const approveRebookRequest = (requestItem) => runAction(
     () => request(`/rebook/${requestItem._id || requestItem.id}/approve`, { method: 'POST' }),
     'Re-book request approved.'
@@ -355,13 +386,6 @@ export default function AdminDashboard({ tab }) {
     'Seller notification marked.'
   );
 
-  const loadStorage = () => runAction(
-    () => request('/admin/storage/overview'),
-    t('admin.storageRefreshed')
-  ).then((response) => {
-    if (response) setStorage(response);
-  });
-
   const loadAnalytics = () => runAction(async () => {
     const [overview, serviceRows, payments] = await Promise.all([
       request('/admin/analytics/overview'),
@@ -373,13 +397,18 @@ export default function AdminDashboard({ tab }) {
     if (response) setAnalytics(response);
   });
 
-  const revenueByType = useMemo(() => bookings.reduce((acc, booking) => {
-    const type = booking.businessId?.businessType || booking.businessType || 'marketplace';
-    acc[type] = (acc[type] || 0) + Number(booking.totalPrice || 0);
-    return acc;
-  }, {}), [bookings]);
+  useEffect(() => {
+    if (activeTab === 'insights' && !analytics && !saving) {
+      loadAnalytics();
+    }
+  }, [activeTab, analytics, saving]);
 
+  const providerUsers = useMemo(
+    () => users.filter((item) => ['hotel', 'supplier'].includes(item.role)),
+    [users]
+  );
   const currentAnnouncement = announcementForm.items?.[0] || { text: '', linkLabel: '', linkUrl: '' };
+  const activePage = ADMIN_PAGE_META[activeTab] || ADMIN_PAGE_META.businesses;
 
   return (
     <View style={styles.container}>
@@ -388,30 +417,25 @@ export default function AdminDashboard({ tab }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primary]} />}
       >
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.eyebrow}>{t('admin.eyebrow')}</Text>
-            <Text style={styles.title}>{t('admin.title')}</Text>
-            <Text style={styles.text}>{t('admin.description')}</Text>
+          <View style={styles.brandIcon}>
+            <Text style={styles.brandIconText}>S</Text>
           </View>
-          <TouchableOpacity style={styles.refreshButton} onPress={() => loadData()} activeOpacity={0.84}>
-            <Feather name="refresh-cw" size={15} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>SafarisCon</Text>
+            <Text style={styles.title}>{activePage.title}</Text>
+            <Text style={styles.text}>{activePage.description}</Text>
+          </View>
+          <TouchableOpacity style={styles.refreshButton} onPress={() => setActiveTab('notifications')} activeOpacity={0.84}>
+            <Feather name="bell" size={16} color={colors.primary} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.metrics}>
+        {activeTab === 'businesses' ? <View style={styles.metrics}>
           <Metric label={t('admin.tabs.users')} value={stats.totalUsers ?? users.length} />
           <Metric label={t('admin.tabs.businesses')} value={stats.totalBusinesses ?? businesses.length} />
           <Metric label={t('admin.tabs.bookings')} value={stats.totalBookings ?? bookings.length} />
           <Metric label={t('admin.tabs.revenue')} value={formatMoney(stats.totalRevenue || transactionSummary?.totalReceived || 0)} />
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-          {ADMIN_TABS.map(([key, titleKey]) => (
-            <TouchableOpacity key={key} style={[styles.tabButton, activeTab === key && styles.tabButtonActive]} onPress={() => setActiveTab(key)} activeOpacity={0.84}>
-              <Text style={[styles.tabText, activeTab === key && styles.tabTextActive]}>{t(titleKey)}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        </View> : null}
 
         {!!info && <Text style={styles.infoText}>{info}</Text>}
         {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -440,8 +464,8 @@ export default function AdminDashboard({ tab }) {
           </Section>
         )}
 
-        {activeTab === 'announcement' && (
-          <Section title={t('admin.tabs.announcement')}>
+        {activeTab === 'notifications' && (
+          <Section title="Notifications">
             <ToggleRow label={t('admin.enabled')} value={announcementForm.enabled} onChange={(value) => setAnnouncementForm((current) => ({ ...current, enabled: value }))} />
             <Field label={t('admin.announcementText')} value={currentAnnouncement.text} onChangeText={(text) => setAnnouncementForm((current) => ({ ...current, items: [{ ...currentAnnouncement, text }] }))} multiline />
             <Field label={t('admin.linkLabel')} value={currentAnnouncement.linkLabel} onChangeText={(linkLabel) => setAnnouncementForm((current) => ({ ...current, items: [{ ...currentAnnouncement, linkLabel }] }))} />
@@ -451,8 +475,33 @@ export default function AdminDashboard({ tab }) {
           </Section>
         )}
 
-        {activeTab === 'booking-rules' && (
-          <Section title={t('admin.tabs.bookingRules')}>
+        {activeTab === 'settings' && (
+          <Section title="Settings">
+            <Text style={styles.settingsGroupTitle}>Appearance</Text>
+            <View style={styles.settingsGrid}>
+              {['light', 'dark'].map((themeMode) => {
+                const active = mode === themeMode;
+                return (
+                  <TouchableOpacity key={themeMode} style={[styles.settingChoice, active && styles.settingChoiceActive]} onPress={() => setThemeMode(themeMode)} activeOpacity={0.84}>
+                    <Feather name={themeMode === 'dark' ? 'moon' : 'sun'} size={17} color={active ? colors.white : colors.primary} />
+                    <Text style={[styles.settingChoiceText, active && styles.settingChoiceTextActive]}>{themeMode === 'dark' ? 'Dark' : 'Light'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.settingsGroupTitle}>Language</Text>
+            <TouchableOpacity style={styles.dropdownField} onPress={() => setLanguageOpen(true)} activeOpacity={0.84}>
+              <View style={styles.dropdownLeft}>
+                <Feather name="globe" size={17} color={colors.primary} />
+                <Text style={styles.dropdownText}>
+                  {languages.find((language) => i18n.resolvedLanguage === language.code || i18n.language === language.code)?.nativeName || 'English'}
+                </Text>
+              </View>
+              <Feather name="chevron-down" size={18} color={colors.muted} />
+            </TouchableOpacity>
+
+            <Text style={styles.settingsGroupTitle}>{t('admin.tabs.bookingRules')}</Text>
             <ModeSelector value={marketplaceSettings.bookingMode || 'manual'} onChange={(bookingMode) => saveMarketplaceSettings({ ...marketplaceSettings, bookingMode })} />
             <Field label={t('admin.defaultCommission')} value={String(marketplaceSettings.defaultCommissionPercentage ?? 10)} onChangeText={(value) => setMarketplaceSettings((current) => ({ ...current, defaultCommissionPercentage: value }))} keyboardType="number-pad" />
             <Field label={t('admin.rulesOneLine')} value={(marketplaceSettings.bookingRules || []).join('\n')} onChangeText={(text) => setMarketplaceSettings((current) => ({ ...current, bookingRules: text.split('\n') }))} multiline />
@@ -461,7 +510,24 @@ export default function AdminDashboard({ tab }) {
         )}
 
         {activeTab === 'register-business' && (
-          <Section title={t('admin.tabs.addSeller')}>
+          <Section title="Service providers">
+            <Text style={styles.settingsGroupTitle}>Existing providers</Text>
+            {!providerUsers.length ? <Text style={styles.cardText}>No service providers yet.</Text> : null}
+            {providerUsers.map((provider) => (
+              <Card key={provider._id || provider.id || provider.email}>
+                <Text style={styles.cardTitle}>{provider.name || provider.providerName || provider.email || t('admin.unnamedUser')}</Text>
+                <Text style={styles.cardMeta}>{provider.email || '-'}</Text>
+                <Text style={styles.cardText}>{t('admin.providerId')}: {provider.sellerId || provider.providerId || '-'}</Text>
+                <Text style={styles.cardText}>{t('admin.role')}: {label(provider.role)}</Text>
+                <Text style={styles.cardText}>Status: {label(provider.businessStatus || provider.businessReviewStatus || provider.status || 'active')}</Text>
+                <View style={styles.actionRow}>
+                  <SmallButton label="Manage account" onPress={() => setActiveTab('users')} />
+                  <SmallButton label={t('actions.delete')} tone="danger" onPress={() => deleteUser(provider._id || provider.id)} />
+                </View>
+              </Card>
+            ))}
+
+            <Text style={styles.settingsGroupTitle}>Add provider</Text>
             <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
             <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
             <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
@@ -578,28 +644,8 @@ export default function AdminDashboard({ tab }) {
           </Section>
         )}
 
-        {activeTab === 'revenue' && (
-          <Section title={t('admin.tabs.revenue')}>
-            <View style={styles.metrics}>
-              <Metric label={t('admin.received')} value={formatMoney(transactionSummary?.totalReceived || 0)} />
-              <Metric label={t('admin.commission')} value={formatMoney(transactionSummary?.commissionEarned || 0)} />
-              <Metric label={t('admin.due')} value={formatMoney(transactionSummary?.commissionDue || 0)} />
-            </View>
-            {Object.entries(revenueByType).map(([type, total]) => <Metric key={type} label={label(type)} value={formatMoney(total)} />)}
-            {transactions.map((tx) => (
-              <Card key={tx._id || tx.transactionId}>
-                <Text style={styles.cardTitle}>{tx.transactionId || tx._id}</Text>
-                <Text style={styles.cardText}>{t('admin.booking')}: {tx.bookingId?.bookingCode || tx.bookingId?._id || '-'}</Text>
-                <Text style={styles.cardText}>{t('admin.deposit')}: {formatMoney(tx.amount)}</Text>
-                <Text style={styles.cardText}>{t('admin.commission')}: {formatMoney(tx.commissionAmount)}</Text>
-                {tx.commissionStatus === 'collected' ? <Badge value={t('admin.collected')} /> : <SmallButton label={t('admin.markCollected')} tone="success" onPress={() => markCommissionCollected(tx)} />}
-              </Card>
-            ))}
-          </Section>
-        )}
-
-        {activeTab === 'analytics' && (
-          <Section title={t('admin.analyticsDashboard')}>
+        {activeTab === 'insights' && (
+          <Section title="Insights">
             <PrimaryButton label={t('admin.refreshAnalytics')} loading={saving} onPress={loadAnalytics} />
             <View style={styles.metrics}>
               <Metric label={t('admin.views')} value={analytics?.overview?.summary?.views || 0} />
@@ -607,31 +653,43 @@ export default function AdminDashboard({ tab }) {
               <Metric label={t('admin.submitted')} value={analytics?.overview?.summary?.bookingSubmitted || 0} />
               <Metric label={t('admin.payments')} value={analytics?.overview?.summary?.paymentSuccess || 0} />
             </View>
+            <View style={styles.metrics}>
+              <Metric
+                label="View to form"
+                value={`${Math.round(((analytics?.overview?.summary?.bookingFormsOpened || 0) / Math.max(1, analytics?.overview?.summary?.views || 0)) * 100)}%`}
+              />
+              <Metric
+                label="Form to booking"
+                value={`${Math.round(((analytics?.overview?.summary?.bookingSubmitted || 0) / Math.max(1, analytics?.overview?.summary?.bookingFormsOpened || 0)) * 100)}%`}
+              />
+              <Metric
+                label="Payment success"
+                value={`${Math.round(((analytics?.overview?.summary?.paymentSuccess || 0) / Math.max(1, (analytics?.overview?.summary?.paymentSuccess || 0) + (analytics?.overview?.summary?.paymentFailed || 0))) * 100)}%`}
+              />
+            </View>
             {(analytics?.serviceRows?.services || []).slice(0, 20).map((service) => (
               <Card key={service.serviceId || service.serviceName}>
                 <Text style={styles.cardTitle}>{service.serviceName}</Text>
                 <Text style={styles.cardText}>{t('admin.views')}: {service.views || 0} - {t('admin.submitted')}: {service.bookingSubmitted || 0} - {t('admin.paid')}: {service.paymentSuccess || 0}</Text>
               </Card>
             ))}
-          </Section>
-        )}
 
-        {activeTab === 'storage' && (
-          <Section title={t('admin.storageOverview')}>
-            <PrimaryButton label={t('admin.refreshStorage')} loading={saving} onPress={loadStorage} />
+            <Text style={styles.insightSubTitle}>Revenue</Text>
             <View style={styles.metrics}>
-              <Metric label={t('admin.mongoUsed')} value={`${Number(storage?.mongodb?.storageUsedMB || 0).toLocaleString()} MB`} />
-              <Metric label={t('admin.mongoDocs')} value={storage?.mongodb?.totalDocuments || 0} />
-              <Metric label={t('admin.cloudinaryUsed')} value={`${Number(storage?.cloudinary?.storageUsedGB || 0).toLocaleString()} GB`} />
-              <Metric label={t('admin.files')} value={storage?.cloudinary?.totalFiles || 0} />
+              <Metric label={t('admin.received')} value={formatMoney(transactionSummary?.totalReceived || 0)} />
+              <Metric label={t('admin.commission')} value={formatMoney(transactionSummary?.commissionEarned || 0)} />
+              <Metric label={t('admin.due')} value={formatMoney(transactionSummary?.commissionDue || 0)} />
             </View>
-          </Section>
-        )}
+            {transactions.slice(0, 5).map((tx) => (
+              <Card key={tx._id || tx.transactionId}>
+                <Text style={styles.cardTitle}>{tx.transactionId || tx._id}</Text>
+                <Text style={styles.cardText}>{t('admin.deposit')}: {formatMoney(tx.amount)} - {t('admin.commission')}: {formatMoney(tx.commissionAmount)}</Text>
+              </Card>
+            ))}
 
-        {activeTab === 'activity' && (
-          <Section title={t('admin.liveActivity')}>
-            {[...bookings.slice(0, 10), ...services.slice(0, 10), ...businesses.slice(0, 10)].map((item, index) => (
-              <Card key={`${item._id || item.id || index}-activity`}>
+            <Text style={styles.insightSubTitle}>Activity</Text>
+            {[...bookings.slice(0, 5), ...services.slice(0, 5), ...businesses.slice(0, 5)].map((item, index) => (
+              <Card key={`${item._id || item.id || index}-insight-activity`}>
                 <Text style={styles.cardTitle}>{item.bookingCode || item.title || item.name || t('admin.activityItem')}</Text>
                 <Text style={styles.cardText}>{label(item.status || item.approvalStatus || item.paymentStatus || t('admin.updated'))}</Text>
                 <Text style={styles.cardMeta}>{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : item.createdAt ? new Date(item.createdAt).toLocaleString() : '-'}</Text>
@@ -639,7 +697,18 @@ export default function AdminDashboard({ tab }) {
             ))}
           </Section>
         )}
+
       </ScrollView>
+
+      <LanguagePickerModal
+        visible={languageOpen}
+        onClose={() => setLanguageOpen(false)}
+        currentLanguage={i18n.resolvedLanguage || i18n.language}
+        onSelect={(languageCode) => {
+          setAppLanguage(languageCode);
+          setLanguageOpen(false);
+        }}
+      />
 
       <BusinessModal business={selectedBusiness} onClose={() => setSelectedBusiness(null)} />
       <BookingQrScanner
@@ -658,6 +727,28 @@ export default function AdminDashboard({ tab }) {
         onReject={rejectBooking}
       />
     </View>
+  );
+}
+
+function LanguagePickerModal({ visible, currentLanguage, onClose, onSelect }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.dropdownBackdrop} activeOpacity={1} onPress={onClose}>
+        <View style={styles.dropdownSheet}>
+          <Text style={styles.dropdownTitle}>Change language</Text>
+          {languages.map((language) => {
+            const active = currentLanguage === language.code;
+            return (
+              <TouchableOpacity key={language.code} style={[styles.languageOption, active && styles.languageOptionActive]} onPress={() => onSelect(language.code)} activeOpacity={0.84}>
+                <Text style={[styles.languageOptionCode, active && styles.languageOptionTextActive]}>{language.shortLabel}</Text>
+                <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{language.nativeName}</Text>
+                {active ? <Feather name="check" size={17} color={colors.white} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </TouchableOpacity>
+    </Modal>
   );
 }
 
@@ -829,12 +920,14 @@ function Detail({ label: detailLabel, value }) {
 
 const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 16, paddingTop: 58, paddingBottom: 30 },
+  content: { padding: 14, paddingTop: 18, paddingBottom: 18 },
   header: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
+  brandIcon: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
+  brandIconText: { color: colors.white, fontSize: 18, fontWeight: '900' },
   eyebrow: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 25, fontWeight: '900', marginTop: 4 },
   text: { color: colors.muted, fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 5 },
-  refreshButton: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, height: 38, justifyContent: 'center', width: 38 },
+  refreshButton: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 14 },
   metricCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, flexGrow: 1, minWidth: '47%', padding: 12 },
   metricLabel: { color: colors.muted, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
@@ -844,9 +937,10 @@ const createStyles = (colors) => StyleSheet.create({
   tabButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.text, fontSize: 12, fontWeight: '900' },
   tabTextActive: { color: colors.white },
-  section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, padding: 12 },
+  section: { paddingTop: 10 },
   sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '900', marginBottom: 10 },
-  card: { backgroundColor: colors.surfaceMuted, borderRadius: 8, marginBottom: 10, padding: 12 },
+  insightSubTitle: { color: colors.textStrong, fontSize: 14, fontWeight: '900', marginTop: 18, marginBottom: 4 },
+  card: { backgroundColor: colors.surface, borderRadius: 8, marginBottom: 10, padding: 12 },
   cardTitle: { color: colors.text, fontSize: 14, fontWeight: '900' },
   cardMeta: { color: colors.primaryDark, fontSize: 12, fontWeight: '800', marginTop: 3 },
   cardText: { color: colors.text, fontSize: 12, fontWeight: '700', lineHeight: 18, marginTop: 5 },
@@ -880,6 +974,23 @@ const createStyles = (colors) => StyleSheet.create({
   modeText: { color: colors.text, fontSize: 12, fontWeight: '900' },
   modeTextActive: { color: colors.white },
   noticeBox: { backgroundColor: colors.primaryLight, borderRadius: 8, marginTop: 12, padding: 12 },
+  settingsGroupTitle: { color: colors.text, fontSize: 13, fontWeight: '900', marginTop: 14, marginBottom: 8 },
+  settingsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  settingChoice: { alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: 8, flexDirection: 'row', gap: 7, minHeight: 44, paddingHorizontal: 12, width: '48%' },
+  settingChoiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  settingChoiceText: { color: colors.text, fontSize: 12, fontWeight: '900' },
+  settingChoiceTextActive: { color: colors.white },
+  dropdownField: { alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: 12 },
+  dropdownLeft: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  dropdownText: { color: colors.text, fontSize: 13, fontWeight: '900' },
+  dropdownBackdrop: { alignItems: 'center', backgroundColor: 'rgba(2, 6, 23, 0.36)', flex: 1, justifyContent: 'center', padding: 22 },
+  dropdownSheet: { backgroundColor: colors.surface, borderRadius: 16, padding: 14, width: '100%' },
+  dropdownTitle: { color: colors.textStrong, fontSize: 16, fontWeight: '900', marginBottom: 8 },
+  languageOption: { alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: 10, flexDirection: 'row', gap: 10, marginTop: 8, minHeight: 48, paddingHorizontal: 12 },
+  languageOptionActive: { backgroundColor: colors.primary },
+  languageOptionCode: { color: colors.primary, fontSize: 12, fontWeight: '900', width: 34 },
+  languageOptionText: { color: colors.text, flex: 1, fontSize: 14, fontWeight: '900' },
+  languageOptionTextActive: { color: colors.white },
   modalScreen: { flex: 1, backgroundColor: colors.background },
   modalContent: { padding: 16, paddingTop: 44, paddingBottom: 28 },
   modalHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },

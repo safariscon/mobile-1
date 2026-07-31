@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
-import { fetchServiceDetails, submitBookingRequest } from '../api/services';
+import { fetchServiceDetails, submitBookingRequest, verifyRebookId } from '../api/services';
 import { useAuth } from '../context/AuthContext';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { getVisiblePromotion } from '../lib/promotion';
@@ -92,6 +92,7 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
   const amenities = asList(displayService?.amenities);
   const locationText = displayService?.generalLocation || displayService?.location?.generalLocation || service?.generalLocation || t('common.rwanda');
   const promotion = getVisiblePromotion(displayService?.promotion || service?.promotion);
+  const unavailable = ['unavailable', 'inactive', 'sold-out'].includes(String(displayService?.status || displayService?.availabilityStatus || '').toLowerCase());
 
   useEffect(() => {
     setSelectedImageIndex(0);
@@ -235,7 +236,8 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
             </View>
 
             <TouchableOpacity
-              style={styles.requestButton}
+              style={[styles.requestButton, unavailable && styles.disabledButton]}
+              disabled={unavailable}
               activeOpacity={0.86}
               onPress={() => {
                 if (!isAuthenticated) {
@@ -246,7 +248,7 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
                 trackAnalytics(ANALYTICS_EVENTS.BOOKING_FORM_OPENED, { serviceId: service.id, pageUrl: `safariscon://booking/${service.id}` });
               }}
             >
-              <Text style={styles.requestButtonText}>{t('serviceDetails.requestBooking')}</Text>
+              <Text style={styles.requestButtonText}>{unavailable ? 'Currently unavailable' : t('serviceDetails.requestBooking')}</Text>
               <Feather name="arrow-right" size={18} color={colors.white} />
             </TouchableOpacity>
           </View>
@@ -280,6 +282,7 @@ const initialBookingValues = (user) => ({
   customerCell: '',
   customerVillage: '',
   paymentMethod: 'mobile-money',
+  rebookId: '',
   specialRequests: '',
   agreeToTerms: false,
 });
@@ -300,6 +303,8 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
   });
   const [selectedOptionId, setSelectedOptionId] = useState(getOptionValue(options[0]));
   const [submitting, setSubmitting] = useState(false);
+  const [verifyingRebook, setVerifyingRebook] = useState(false);
+  const [verifiedRebookId, setVerifiedRebookId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const selectedOption = options.find((option) => getOptionValue(option) === selectedOptionId) || options[0];
@@ -310,19 +315,45 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
 
   const validate = () => {
     if (!service?.hotelId && !service?.id) return t('bookingForm.unavailable');
+    if (['unavailable', 'inactive', 'sold-out'].includes(String(service?.status || service?.availabilityStatus || '').toLowerCase())) return t('bookingForm.unavailable');
     if (!selectedOption) return t('bookingForm.chooseOptionError');
     if (!values.fullName.trim()) return t('bookingForm.fullNameError');
     if (!/^\+?[0-9][0-9\s-]{7,18}$/.test(values.phone.trim())) return t('bookingForm.phoneError');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) return t('bookingForm.emailError');
     if (!values.bookingDate.trim()) return t('bookingForm.dateError');
-    if (!values.customerProvince || !values.customerDistrict || !values.customerSector.trim()) return 'Customer province, district, and sector are required.';
-    if (values.endDate && values.bookingDate && new Date(values.endDate) <= new Date(values.bookingDate)) {
-      return 'End date must be after booking date.';
+    if (!values.endDate.trim()) return 'End booking date is required.';
+    if (new Date(values.endDate) < new Date(values.bookingDate)) {
+      return 'End date cannot be before booking date.';
     }
+    if (!values.startTime.trim() || !values.endTime.trim()) return 'Start time and end time are required.';
+    if (Math.max(1, Number(values.numberOfPeople) || 0) < 1 || Math.max(1, Number(values.quantity) || 0) < 1) return 'People and quantity must be at least 1.';
+    if (!values.customerProvince || !values.customerDistrict || !values.customerSector.trim() || !values.customerCell.trim() || !values.customerVillage.trim()) return 'Province, district, sector, cell, and village are required.';
+    if (values.rebookId.trim() && verifiedRebookId !== values.rebookId.trim()) return 'Verify the Re-book ID before submitting.';
     if (!values.agreeToTerms) return t('bookingForm.termsError');
     const missingCustom = customFields.find((field) => field.required && !String(customValues[field.id] || '').trim());
     if (missingCustom) return t('bookingForm.customRequired', { label: missingCustom.label });
     return '';
+  };
+
+  const handleVerifyRebook = async () => {
+    const rebookId = values.rebookId.trim();
+    if (!rebookId) {
+      setError('Enter a Re-book ID first.');
+      return;
+    }
+    setVerifyingRebook(true);
+    setError('');
+    setSuccess('');
+    try {
+      await verifyRebookId({ rebookId, serviceId: service?.id || service?.hotelId });
+      setVerifiedRebookId(rebookId);
+      setSuccess('Re-book ID verified.');
+    } catch (verifyError) {
+      setVerifiedRebookId('');
+      setError(verifyError.message || 'Could not verify Re-book ID.');
+    } finally {
+      setVerifyingRebook(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -363,28 +394,40 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
 
       const response = await submitBookingRequest({
         hotelId: service.hotelId || service.id,
+        serviceId: service.hotelId || service.id,
+        rebookId: verifiedRebookId || undefined,
         quantity,
+        numberOfPeople: people,
         guests: people,
+        totalConsumptionUnits: quantity * people,
         checkIn,
         checkOut,
+        bookingDate: checkIn,
+        endBookingDate: checkOut,
+        startTime: values.startTime,
+        endTime: values.endTime,
         totalPrice: 0,
         destinationPlace: service.title || service.name || t('bookingForm.selectedService'),
         destinationLocation: locationText,
+        customerLocation: customerLocationText,
+        customerLocationDetails,
         bookingDetails: {
           ...values,
           serviceName: service.title || service.name || t('bookingForm.selectedService'),
           requestedService: selectedOption.name || t('serviceDetails.serviceOption'),
-          selectedOptionId: selectedOption.id,
+          selectedOptionId: getOptionValue(selectedOption),
           listedPriceRwf: selectedOption.price || '',
           fullName: values.fullName.trim(),
           email: values.email.trim().toLowerCase(),
           phone: values.phone.trim(),
           bookingDate: values.bookingDate,
           endDate: values.endDate || values.bookingDate,
+          endBookingDate: values.endDate || values.bookingDate,
           startTime: values.startTime,
           endTime: values.endTime,
           numberOfPeople: people,
           quantity,
+          totalConsumptionUnits: quantity * people,
           customerLocation: values.customerLocation.trim() || customerLocationText,
           customerLocationDetails,
           paymentMethod: values.paymentMethod,
@@ -469,7 +512,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
 
           <View style={styles.customerLocationBox}>
             <Text style={styles.customerLocationTitle}>Customer location</Text>
-            <Text style={styles.customerLocationHelp}>Province, district, and sector are required for this booking.</Text>
+            <Text style={styles.customerLocationHelp}>Province, district, sector, cell, and village are required for this booking.</Text>
             <TextField label={`${t('bookingForm.pickup')} (optional)`} value={values.customerLocation} onChangeText={(text) => updateValue('customerLocation', text)} placeholder={t('bookingForm.pickupPlaceholder')} />
             <View style={styles.twoColumn}>
               <SelectField label={`${t('customerBookings.province')} *`} value={values.customerProvince} options={RWANDA_PROVINCES.map((province) => [province, province || 'Select province'])} onChange={(value) => updateValue('customerProvince', value)} placeholder="Select province" />
@@ -492,6 +535,16 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
             onChange={(method) => updateValue('paymentMethod', method)}
             searchable={false}
           />
+
+          <View style={styles.rebookBox}>
+            <TextField label="Re-book ID (optional)" value={values.rebookId} onChangeText={(text) => {
+              updateValue('rebookId', text);
+              if (verifiedRebookId && verifiedRebookId !== text.trim()) setVerifiedRebookId('');
+            }} placeholder="RBK-2026-00124" autoCapitalize="characters" />
+            <TouchableOpacity style={[styles.secondaryVerifyButton, verifyingRebook && styles.disabledButton]} onPress={handleVerifyRebook} disabled={verifyingRebook} activeOpacity={0.84}>
+              {verifyingRebook ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryVerifyText}>{verifiedRebookId ? 'Verified' : 'Verify Re-book ID'}</Text>}
+            </TouchableOpacity>
+          </View>
 
           {customFields.map((field) => (
             <CustomField
@@ -720,6 +773,29 @@ const createStyles = (colors) => StyleSheet.create({
     borderWidth: 1,
     marginTop: 14,
     padding: 12,
+  },
+  rebookBox: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 12,
+  },
+  secondaryVerifyButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 42,
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  secondaryVerifyText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
   },
   customerLocationTitle: {
     color: colors.text,

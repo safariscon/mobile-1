@@ -11,6 +11,16 @@ import useThemedStyles from '../theme/useThemedStyles';
 let colors = lightColors;
 let styles;
 
+async function apiFetchFirst(paths, options) {
+  let lastResponse = null;
+  for (const path of paths) {
+    const response = await apiFetch(path, options);
+    lastResponse = response;
+    if (response.ok || ![404, 405].includes(response.status)) return response;
+  }
+  return lastResponse;
+}
+
 export default function BusinessRegistrationScreen({ onSubmitted }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
@@ -49,7 +59,7 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
     setError('');
     setSuccess('');
     try {
-      const response = await apiFetch('/seller/services', {
+      const response = await apiFetchFirst(['/hotel/services', '/seller/services'], {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

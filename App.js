@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState, useEffect } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -10,6 +10,8 @@ import AnnouncementBar, { ANNOUNCEMENT_BAR_SPACE } from './src/components/Announ
 import BottomTabs from './src/components/BottomTabs';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
+import EmailVerificationScreen from './src/screens/EmailVerificationScreen';
+import PasswordRecoveryScreen from './src/screens/PasswordRecoveryScreen';
 import CompleteProviderRegistrationScreen from './src/screens/CompleteProviderRegistrationScreen';
 import BusinessRegistrationScreen from './src/screens/BusinessRegistrationScreen';
 import BusinessRegistrationStatusScreen from './src/screens/BusinessRegistrationStatusScreen';
@@ -30,6 +32,18 @@ import useThemedStyles from './src/theme/useThemedStyles';
 
 let colors = lightColors;
 let styles;
+
+const CUSTOMER_PAGE_META = {
+  home: { title: 'Home', icon: 'home' },
+  services: { title: 'Services', icon: 'grid' },
+  bookings: { title: 'Bookings', icon: 'calendar' },
+  profile: { title: 'Profile', icon: 'user' },
+  notifications: { title: 'Notifications', icon: 'bell' },
+  settings: { title: 'Settings', icon: 'settings' },
+  support: { title: 'Support', icon: 'help-circle' },
+};
+
+const CUSTOMER_MORE_KEYS = ['notifications', 'settings', 'support'];
 
 function useAppTheme() {
   const themed = useThemedStyles(createStyles);
@@ -129,7 +143,11 @@ function MainAppContent() {
   const { isAuthenticated, user, restoringSession, isTourist, isSeller, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
   const [authScreen, setAuthScreen] = useState(null);
+  const [authEmail, setAuthEmail] = useState('');
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [adminMoreVisible, setAdminMoreVisible] = useState(false);
+  const [customerMoreVisible, setCustomerMoreVisible] = useState(false);
+  const [adminRoute, setAdminRoute] = useState('businesses');
   const [editingBusiness, setEditingBusiness] = useState(false);
   const [serviceFilters, setServiceFilters] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
@@ -143,7 +161,7 @@ function MainAppContent() {
       setActiveTab('seller_bookings');
       setEditingBusiness(false);
     } else if (isAdmin) {
-      setActiveTab('admin_verifications');
+      setActiveTab('admin_home');
     } else if (isTourist) {
       setActiveTab('bookings');
     } else {
@@ -171,24 +189,6 @@ function MainAppContent() {
         <ActivityIndicator color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.muted }]}>{t('common.loadingSession')}</Text>
       </View>
-    );
-  }
-
-  if (!isAuthenticated && authScreen === 'register') {
-    return <RegisterScreen onBack={() => setAuthScreen(null)} onNavigateToLogin={() => setAuthScreen('login')} />;
-  }
-
-  if (!isAuthenticated && authScreen === 'provider') {
-    return <CompleteProviderRegistrationScreen onBack={() => setAuthScreen(null)} onNavigateToLogin={() => setAuthScreen('login')} />;
-  }
-
-  if (!isAuthenticated && authScreen === 'login') {
-    return (
-      <LoginScreen
-        onBack={() => setAuthScreen(null)}
-        onNavigateToRegister={() => setAuthScreen('register')}
-        onNavigateToProviderRegistration={() => setAuthScreen('provider')}
-      />
     );
   }
 
@@ -234,14 +234,56 @@ function MainAppContent() {
           { key: 'services', label: t('common.services'), icon: 'grid' },
           { key: 'bookings', label: t('tabs.bookings'), icon: 'calendar' },
           { key: 'profile', label: t('common.profile'), icon: 'user' },
+          { key: 'customer_more', label: 'More', icon: 'more-horizontal' },
         ]
       : [
           { key: 'home', label: t('common.home'), icon: 'home' },
           { key: 'services', label: t('common.services'), icon: 'grid' },
         ];
 
+    const guestAuthScreens = {
+      login: (
+        <LoginScreen
+          onBack={() => setAuthScreen(null)}
+          onNavigateToRegister={() => setAuthScreen('register')}
+          onNavigateToProviderRegistration={() => setAuthScreen('provider')}
+          onNavigateToForgotPassword={(email) => {
+            setAuthEmail(email || '');
+            setAuthScreen('forgot-password');
+          }}
+          onEmailVerificationRequired={(email) => {
+            setAuthEmail(email || '');
+            setAuthScreen('verify-email');
+          }}
+        />
+      ),
+      register: (
+        <RegisterScreen
+          onBack={() => setAuthScreen(null)}
+          onNavigateToLogin={() => setAuthScreen('login')}
+          onNavigateToProviderRegistration={() => setAuthScreen('provider')}
+          onEmailVerificationRequired={(email) => {
+            setAuthEmail(email || '');
+            setAuthScreen('verify-email');
+          }}
+        />
+      ),
+      provider: (
+        <CompleteProviderRegistrationScreen
+          onBack={() => setAuthScreen(null)}
+          onNavigateToLogin={() => setAuthScreen('login')}
+          onEmailVerificationRequired={(email) => {
+            setAuthEmail(email || '');
+            setAuthScreen('verify-email');
+          }}
+        />
+      ),
+      'verify-email': <EmailVerificationScreen email={authEmail} onBack={() => setAuthScreen('login')} onVerified={() => setAuthScreen(null)} />,
+      'forgot-password': <PasswordRecoveryScreen initialEmail={authEmail} onBack={() => setAuthScreen('login')} onDone={() => setAuthScreen('login')} />,
+    };
+
     const screens = {
-      home: (
+      home: authScreen && !isAuthenticated ? guestAuthScreens[authScreen] : (
         <HomeScreen
           onMenuPress={() => setDrawerVisible(true)}
           onLoginPress={!isAuthenticated ? () => setAuthScreen('login') : undefined}
@@ -252,14 +294,28 @@ function MainAppContent() {
             setActiveTab('services');
           }}
           onOpenService={setSelectedService}
-          onOpenSettings={isAuthenticated ? () => setActiveTab('profile') : undefined}
+          onOpenSettings={isAuthenticated ? () => setActiveTab('settings') : undefined}
+          hideTopBar={isAuthenticated}
         />
       ),
-      services: <ServicesScreen initialFilters={serviceFilters} onMenuPress={() => setDrawerVisible(true)} onBack={() => setActiveTab('home')} onOpenService={setSelectedService} onRequireAuth={() => setAuthScreen('register')} />,
+      services: <ServicesScreen initialFilters={serviceFilters} onMenuPress={() => setDrawerVisible(true)} onBack={() => setActiveTab('home')} onOpenService={setSelectedService} onRequireAuth={() => setAuthScreen('register')} hideTopBar={isAuthenticated} />,
       bookings: isAuthenticated ? <BookingsScreen onOpenRoute={setRouteBooking} /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
       profile: isAuthenticated ? <ProfileScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
+      notifications: isAuthenticated ? <CustomerNotificationsScreen onBrowseServices={() => setActiveTab('services')} /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
+      settings: isAuthenticated ? <CustomerSettingsScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
+      support: isAuthenticated ? <CustomerSupportScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
     };
-    currentScreen = screens[activeTab] || screens.home;
+    currentScreen = authScreen && !isAuthenticated ? guestAuthScreens[authScreen] : screens[activeTab] || screens.home;
+    if (isAuthenticated) {
+      currentScreen = (
+        <CustomerPageFrame
+          activeTab={activeTab}
+          onOpenNotifications={() => setActiveTab('notifications')}
+        >
+          {currentScreen}
+        </CustomerPageFrame>
+      );
+    }
   } else if (isSeller) {
     roleTabs = [
       { key: 'seller_bookings', label: t('tabs.bookings'), icon: 'calendar' },
@@ -279,18 +335,39 @@ function MainAppContent() {
     currentScreen = screens[activeTab] || <SellerDashboard tab="bookings" />;
   } else if (isAdmin) {
     roleTabs = [
-      { key: 'admin_verifications', label: t('tabs.audits'), icon: 'shield' },
-      { key: 'admin_stats', label: t('tabs.stats'), icon: 'bar-chart-2' },
-      { key: 'profile', label: t('common.profile'), icon: 'user' },
+      { key: 'admin_bookings', label: t('tabs.bookings'), icon: 'calendar' },
+      { key: 'admin_insights', label: 'Insights', icon: 'bar-chart-2' },
+      { key: 'admin_home', label: t('common.home'), icon: 'home' },
+      { key: 'admin_settings', label: 'Settings', icon: 'settings' },
+      { key: 'admin_more', label: 'More', icon: 'more-horizontal' },
     ];
 
     const screens = {
-      admin_verifications: <AdminDashboard tab="verifications" />,
-      admin_stats: <AdminDashboard tab="stats" />,
+      admin_home: <AdminDashboard tab={adminRoute || 'businesses'} />,
+      admin_bookings: <AdminDashboard tab="bookings" />,
+      admin_insights: <AdminDashboard tab="insights" />,
+      admin_settings: <AdminDashboard tab="settings" />,
+      admin_more: <AdminDashboard tab={adminRoute || 'businesses'} />,
       profile: <ProfileScreen />,
     };
-    currentScreen = screens[activeTab] || <AdminDashboard tab="verifications" />;
+    currentScreen = screens[activeTab] || <AdminDashboard tab="home" />;
   }
+
+  const changeTab = (tabKey) => {
+    if (tabKey === 'customer_more') {
+      setCustomerMoreVisible(true);
+      return;
+    }
+    if (tabKey === 'admin_more') {
+      setAdminMoreVisible(true);
+      return;
+    }
+    if (tabKey === 'admin_home') setAdminRoute('businesses');
+    if (tabKey === 'admin_bookings') setAdminRoute('bookings');
+    if (tabKey === 'admin_insights') setAdminRoute('insights');
+    if (tabKey === 'admin_settings') setAdminRoute('settings');
+    setActiveTab(tabKey);
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
@@ -304,7 +381,32 @@ function MainAppContent() {
         />
       ) : null}
       <View style={[styles.content, !isAuthenticated && styles.contentWithAnnouncement, { backgroundColor: colors.background }]}>{currentScreen}</View>
-      <BottomTabs activeTab={activeTab} onChangeTab={setActiveTab} tabs={roleTabs} />
+      <BottomTabs activeTab={CUSTOMER_MORE_KEYS.includes(activeTab) ? 'customer_more' : activeTab} onChangeTab={changeTab} tabs={roleTabs} />
+      {isAuthenticated && isTourist ? (
+        <CustomerMoreSheet
+          visible={customerMoreVisible}
+          onClose={() => setCustomerMoreVisible(false)}
+          onSelect={(routeKey) => {
+            setActiveTab(routeKey);
+            setCustomerMoreVisible(false);
+          }}
+        />
+      ) : null}
+      {isAdmin ? (
+        <AdminMoreSheet
+          visible={adminMoreVisible}
+          onClose={() => setAdminMoreVisible(false)}
+          onSelect={(routeKey) => {
+            setAdminRoute(routeKey);
+            if (routeKey === 'bookings') setActiveTab('admin_bookings');
+            else if (routeKey === 'insights') setActiveTab('admin_insights');
+            else if (routeKey === 'settings') setActiveTab('admin_settings');
+            else if (routeKey === 'profile') setActiveTab('profile');
+            else setActiveTab('admin_more');
+            setAdminMoreVisible(false);
+          }}
+        />
+      ) : null}
       <NavigationDrawer
         visible={drawerVisible}
         tabs={roleTabs}
@@ -314,7 +416,7 @@ function MainAppContent() {
         user={user}
         onClose={() => setDrawerVisible(false)}
         onSelectTab={(tabKey) => {
-          setActiveTab(tabKey);
+          changeTab(tabKey);
           setDrawerVisible(false);
         }}
         onLogin={() => {
@@ -326,6 +428,32 @@ function MainAppContent() {
           setDrawerVisible(false);
         }}
       />
+    </View>
+  );
+}
+
+function CustomerPageFrame({ activeTab, onOpenNotifications, children }) {
+  useAppTheme();
+  const { colors } = useTheme();
+  const page = CUSTOMER_PAGE_META[activeTab] || CUSTOMER_PAGE_META.home;
+
+  return (
+    <View style={[styles.customerFrame, { backgroundColor: colors.background }]}>
+      <View style={[styles.customerHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <View style={styles.customerHeaderLeft}>
+          <View style={[styles.customerBrandMark, { backgroundColor: colors.primary }]}>
+            <Text style={styles.customerBrandMarkText}>S</Text>
+          </View>
+          <View style={styles.customerHeaderCopy}>
+            <Text style={[styles.customerBrandName, { color: colors.textStrong }]}>SafarisCon</Text>
+            <Text style={[styles.customerPageName, { color: colors.text }]}>{page.title}</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={[styles.customerHeaderButton, { backgroundColor: colors.primaryLight }]} onPress={onOpenNotifications} activeOpacity={0.84}>
+          <Feather name="bell" size={18} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.customerFrameBody}>{children}</View>
     </View>
   );
 }
@@ -388,6 +516,227 @@ function NavigationDrawer({ visible, tabs, activeTab, isAuthenticated, isDark, u
             <Feather name={isDark ? 'moon' : 'sun'} size={15} color={colors.muted} />
             <Text style={[styles.drawerFooterText, { color: colors.muted }]}>{isDark ? 'Dark mode' : 'Light mode'}</Text>
           </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const CUSTOMER_MORE_GROUPS = [
+  {
+    title: 'Customer tools',
+    items: [
+      { key: 'notifications', label: 'Notifications', icon: 'bell' },
+      { key: 'settings', label: 'Settings', icon: 'settings' },
+      { key: 'support', label: 'Support', icon: 'help-circle' },
+    ],
+  },
+];
+
+function CustomerMoreSheet({ visible, onClose, onSelect }) {
+  useAppTheme();
+  const { colors } = useTheme();
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.moreBackdrop} onPress={onClose}>
+        <Pressable style={[styles.moreSheet, { backgroundColor: colors.surface }]} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.moreHandle} />
+          <View style={styles.moreHeader}>
+            <Text style={[styles.moreTitle, { color: colors.textStrong }]}>More</Text>
+            <TouchableOpacity style={[styles.drawerClose, { borderColor: colors.border }]} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          {CUSTOMER_MORE_GROUPS.map((group) => (
+            <View key={group.title} style={styles.moreGroup}>
+              <Text style={[styles.moreGroupTitle, { color: colors.muted }]}>{group.title}</Text>
+              <View style={styles.moreGrid}>
+                {group.items.map((item) => (
+                  <TouchableOpacity key={item.key} style={[styles.moreItem, { backgroundColor: colors.surfaceMuted }]} onPress={() => onSelect(item.key)} activeOpacity={0.84}>
+                    <Feather name={item.icon} size={18} color={colors.primary} />
+                    <Text style={[styles.moreItemText, { color: colors.text }]}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function CustomerNotificationsScreen({ onBrowseServices }) {
+  useAppTheme();
+  const { colors } = useTheme();
+
+  const items = [
+    { title: 'Booking updates', text: 'Your booking confirmations, payment updates, provider details, and re-book replies will appear here.', icon: 'calendar' },
+    { title: 'Service alerts', text: 'Promotions, availability changes, and useful travel updates are kept in this notification center.', icon: 'bell' },
+  ];
+
+  return (
+    <ScrollView style={[styles.simplePage, { backgroundColor: colors.background }]} contentContainerStyle={styles.simplePageContent} showsVerticalScrollIndicator={false}>
+      {items.map((item) => (
+        <View key={item.title} style={[styles.customerInfoRow, { backgroundColor: colors.surface }]}>
+          <View style={[styles.customerInfoIcon, { backgroundColor: colors.primaryLight }]}>
+            <Feather name={item.icon} size={18} color={colors.primary} />
+          </View>
+          <View style={styles.customerInfoCopy}>
+            <Text style={[styles.customerInfoTitle, { color: colors.textStrong }]}>{item.title}</Text>
+            <Text style={[styles.customerInfoText, { color: colors.muted }]}>{item.text}</Text>
+          </View>
+        </View>
+      ))}
+      <TouchableOpacity style={[styles.customerPrimaryAction, { backgroundColor: colors.primary }]} onPress={onBrowseServices} activeOpacity={0.86}>
+        <Text style={styles.customerPrimaryActionText}>Browse services</Text>
+        <Feather name="arrow-right" size={17} color={colors.white} />
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+function CustomerSettingsScreen() {
+  useAppTheme();
+  const { i18n } = useTranslation();
+  const { colors, mode, setThemeMode } = useTheme();
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const currentLanguage = languages.find((language) => i18n.resolvedLanguage === language.code || i18n.language === language.code) || languages[0];
+
+  return (
+    <ScrollView style={[styles.simplePage, { backgroundColor: colors.background }]} contentContainerStyle={styles.simplePageContent} showsVerticalScrollIndicator={false}>
+      <Text style={[styles.customerSectionTitle, { color: colors.textStrong }]}>Theme</Text>
+      <View style={styles.customerSettingsGrid}>
+        {['light', 'dark'].map((themeMode) => {
+          const active = mode === themeMode;
+          return (
+            <TouchableOpacity key={themeMode} style={[styles.customerSettingChoice, { backgroundColor: active ? colors.primary : colors.surface }]} onPress={() => setThemeMode(themeMode)} activeOpacity={0.84}>
+              <Feather name={themeMode === 'dark' ? 'moon' : 'sun'} size={18} color={active ? colors.white : colors.primary} />
+              <Text style={[styles.customerSettingChoiceText, { color: active ? colors.white : colors.text }]}>{themeMode === 'dark' ? 'Dark' : 'Light'}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <Text style={[styles.customerSectionTitle, { color: colors.textStrong }]}>Language</Text>
+      <TouchableOpacity style={[styles.customerDropdown, { backgroundColor: colors.surface }]} onPress={() => setLanguageOpen(true)} activeOpacity={0.84}>
+        <View style={styles.customerDropdownLeft}>
+          <Feather name="globe" size={18} color={colors.primary} />
+          <Text style={[styles.customerDropdownText, { color: colors.text }]}>{currentLanguage.nativeName}</Text>
+        </View>
+        <Feather name="chevron-down" size={18} color={colors.muted} />
+      </TouchableOpacity>
+
+      <Text style={[styles.customerSectionTitle, { color: colors.textStrong }]}>Preferences</Text>
+      <View style={[styles.customerInfoRow, { backgroundColor: colors.surface }]}>
+        <View style={[styles.customerInfoIcon, { backgroundColor: colors.primaryLight }]}>
+          <Feather name="mail" size={18} color={colors.primary} />
+        </View>
+        <View style={styles.customerInfoCopy}>
+          <Text style={[styles.customerInfoTitle, { color: colors.textStrong }]}>Booking communication</Text>
+          <Text style={[styles.customerInfoText, { color: colors.muted }]}>Email and in-app booking updates stay enabled for customer accounts.</Text>
+        </View>
+      </View>
+
+      <Modal visible={languageOpen} transparent animationType="fade" onRequestClose={() => setLanguageOpen(false)}>
+        <Pressable style={styles.dropdownBackdrop} onPress={() => setLanguageOpen(false)}>
+          <Pressable style={[styles.dropdownSheet, { backgroundColor: colors.surface }]} onPress={(event) => event.stopPropagation()}>
+            <Text style={[styles.dropdownTitle, { color: colors.textStrong }]}>Change language</Text>
+            {languages.map((language) => {
+              const active = currentLanguage.code === language.code;
+              return (
+                <TouchableOpacity key={language.code} style={[styles.languageOption, { backgroundColor: active ? colors.primary : colors.surfaceMuted }]} onPress={() => {
+                  setAppLanguage(language.code);
+                  setLanguageOpen(false);
+                }} activeOpacity={0.84}>
+                  <Text style={[styles.languageOptionCode, { color: active ? colors.white : colors.primary }]}>{language.shortLabel}</Text>
+                  <Text style={[styles.languageOptionText, { color: active ? colors.white : colors.text }]}>{language.nativeName}</Text>
+                  {active ? <Feather name="check" size={17} color={colors.white} /> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+function CustomerSupportScreen() {
+  useAppTheme();
+  const { colors } = useTheme();
+
+  return (
+    <ScrollView style={[styles.simplePage, { backgroundColor: colors.background }]} contentContainerStyle={styles.simplePageContent} showsVerticalScrollIndicator={false}>
+      {[
+        ['Need help with a booking?', 'Open your booking and use the available contact or route actions after your provider details are unlocked.', 'message-circle'],
+        ['Payments and deposits', 'Confirmed bookings show payment status, deposit amount, and remaining balance in your bookings page.', 'credit-card'],
+        ['Re-book requests', 'When available, re-book and cancellation requests are tracked from your bookings page.', 'repeat'],
+      ].map(([title, text, icon]) => (
+        <View key={title} style={[styles.customerInfoRow, { backgroundColor: colors.surface }]}>
+          <View style={[styles.customerInfoIcon, { backgroundColor: colors.primaryLight }]}>
+            <Feather name={icon} size={18} color={colors.primary} />
+          </View>
+          <View style={styles.customerInfoCopy}>
+            <Text style={[styles.customerInfoTitle, { color: colors.textStrong }]}>{title}</Text>
+            <Text style={[styles.customerInfoText, { color: colors.muted }]}>{text}</Text>
+          </View>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+const ADMIN_MORE_GROUPS = [
+  {
+    title: 'Manage',
+    items: [
+      { key: 'businesses', label: 'Business review', icon: 'shield' },
+      { key: 'services', label: 'Services', icon: 'layers' },
+      { key: 'users', label: 'Users', icon: 'users' },
+      { key: 'register-business', label: 'Service providers', icon: 'user-plus' },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { key: 'rebook-requests', label: 'Re-book requests', icon: 'repeat' },
+      { key: 'verification', label: 'Verify booking', icon: 'check-square' },
+      { key: 'notifications', label: 'Notifications', icon: 'bell' },
+      { key: 'profile', label: 'Profile', icon: 'user' },
+    ],
+  },
+];
+
+function AdminMoreSheet({ visible, onClose, onSelect }) {
+  useAppTheme();
+  const { colors } = useTheme();
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.moreBackdrop} onPress={onClose}>
+        <Pressable style={[styles.moreSheet, { backgroundColor: colors.surface }]} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.moreHandle} />
+          <View style={styles.moreHeader}>
+            <Text style={[styles.moreTitle, { color: colors.textStrong }]}>More</Text>
+            <TouchableOpacity style={[styles.drawerClose, { borderColor: colors.border }]} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          {ADMIN_MORE_GROUPS.map((group) => (
+            <View key={group.title} style={styles.moreGroup}>
+              <Text style={[styles.moreGroupTitle, { color: colors.muted }]}>{group.title}</Text>
+              <View style={styles.moreGrid}>
+                {group.items.map((item) => (
+                  <TouchableOpacity key={item.key} style={[styles.moreItem, { backgroundColor: colors.surfaceMuted }]} onPress={() => onSelect(item.key)} activeOpacity={0.84}>
+                    <Feather name={item.icon} size={18} color={colors.primary} />
+                    <Text style={[styles.moreItemText, { color: colors.text }]}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
         </Pressable>
       </Pressable>
     </Modal>
@@ -564,6 +913,184 @@ const createStyles = (colors) => StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  customerFrame: {
+    flex: 1,
+  },
+  customerFrameBody: {
+    flex: 1,
+  },
+  customerHeader: {
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 62,
+    paddingHorizontal: 16,
+  },
+  customerHeaderLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  customerBrandMark: {
+    alignItems: 'center',
+    borderRadius: 10,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  customerBrandMarkText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  customerHeaderCopy: {
+    flex: 1,
+  },
+  customerBrandName: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  customerPageName: {
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 1,
+  },
+  customerHeaderButton: {
+    alignItems: 'center',
+    borderRadius: 10,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  simplePage: {
+    flex: 1,
+  },
+  simplePageContent: {
+    padding: 16,
+    paddingBottom: 18,
+  },
+  customerInfoRow: {
+    alignItems: 'flex-start',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 10,
+    padding: 13,
+  },
+  customerInfoIcon: {
+    alignItems: 'center',
+    borderRadius: 9,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  customerInfoCopy: {
+    flex: 1,
+  },
+  customerInfoTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  customerInfoText: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  customerPrimaryAction: {
+    alignItems: 'center',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 46,
+    marginTop: 4,
+  },
+  customerPrimaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  customerSectionTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 9,
+    marginTop: 6,
+  },
+  customerSettingsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  customerSettingChoice: {
+    alignItems: 'center',
+    borderRadius: 8,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 9,
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  customerSettingChoiceText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  customerDropdown: {
+    alignItems: 'center',
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 48,
+    marginBottom: 10,
+    paddingHorizontal: 13,
+  },
+  customerDropdownLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  customerDropdownText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  dropdownBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(2, 6, 23, 0.38)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 22,
+  },
+  dropdownSheet: {
+    borderRadius: 16,
+    padding: 14,
+    width: '100%',
+  },
+  dropdownTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  languageOption: {
+    alignItems: 'center',
+    borderRadius: 10,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  languageOptionCode: {
+    fontSize: 12,
+    fontWeight: '900',
+    width: 34,
+  },
+  languageOptionText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '900',
   },
   contentWithAnnouncement: {
     paddingTop: ANNOUNCEMENT_BAR_SPACE,
@@ -746,6 +1273,63 @@ const createStyles = (colors) => StyleSheet.create({
   drawerFooterText: {
     fontSize: 12,
     fontWeight: '800',
+  },
+  moreBackdrop: {
+    backgroundColor: 'rgba(2, 6, 23, 0.36)',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  moreSheet: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 16,
+    paddingBottom: 22,
+  },
+  moreHandle: {
+    alignSelf: 'center',
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    height: 5,
+    marginBottom: 12,
+    width: 46,
+  },
+  moreHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  moreTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  moreGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  moreGroup: {
+    marginTop: 8,
+  },
+  moreGroupTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  moreItem: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 9,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    width: '48%',
+  },
+  moreItemText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '900',
   },
 });
 

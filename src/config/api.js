@@ -55,6 +55,9 @@ export async function apiFetch(path, options = {}) {
   const headers = {
     ...(fetchOptions.headers || {}),
   };
+  if (typeof fetchOptions.body === 'string' && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   const authToken = skipAuth ? null : authTokenProvider();
   if (authToken && !headers.Authorization) {
     headers.Authorization = `Bearer ${authToken}`;

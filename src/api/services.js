@@ -348,9 +348,30 @@ export async function submitBookingRequest(payload) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(i18n.t('backend.returned', { status: response.status }));
+    const error = new Error(data.message || i18n.t('backend.returned', { status: response.status }));
+    error.status = response.status;
+    error.code = data.code;
+    error.data = data;
+    throw error;
   }
 
+  return data;
+}
+
+export async function verifyRebookId({ rebookId, serviceId }) {
+  const response = await apiFetch('/rebook/verify-id', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rebookId, serviceId }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.message || i18n.t('backend.returned', { status: response.status }));
+    error.status = response.status;
+    error.code = data.code;
+    error.data = data;
+    throw error;
+  }
   return data;
 }
 

@@ -47,7 +47,7 @@ function uniqueOptions(items, getValue, emptyLabel) {
   return [['', emptyLabel], ...Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1]))];
 }
 
-export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onOpenService, initialFilters }) {
+export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onOpenService, initialFilters, hideTopBar = false }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -255,7 +255,7 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
 
   const header = (
     <>
-      <View style={styles.topBar}>
+      {!hideTopBar ? <View style={styles.topBar}>
         <TouchableOpacity style={styles.iconButton} onPress={onMenuPress || onBack} activeOpacity={0.8}>
           <Feather name={onMenuPress ? 'menu' : 'arrow-left'} size={19} color={colors.text} />
         </TouchableOpacity>
@@ -266,7 +266,7 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
         <TouchableOpacity style={styles.iconButton} onPress={clearFilters} activeOpacity={0.8}>
           <Feather name="sliders" size={18} color={colors.text} />
         </TouchableOpacity>
-      </View>
+      </View> : null}
 
       <View style={styles.searchBox}>
         <Feather name="search" size={18} color={colors.muted} />
@@ -441,7 +441,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingTop: 50,
+    paddingTop: 18,
     paddingBottom: 26,
   },
   topBar: {

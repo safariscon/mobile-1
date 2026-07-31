@@ -23,7 +23,7 @@ function getLoginErrorDetails(message) {
   }
   return { message: original || 'Login failed.', cause: 'Cause: the backend rejected the sign in request.' };
 }
-export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateToProviderRegistration }) {
+export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateToProviderRegistration, onNavigateToForgotPassword, onEmailVerificationRequired }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -44,6 +44,10 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
     setError(null);
     const result = await login(normalizedEmail, password);
     if (!result.success) {
+      if (result.status === 403 && result.code === 'EMAIL_NOT_VERIFIED') {
+        onEmailVerificationRequired?.(normalizedEmail);
+        return;
+      }
       setError(getLoginErrorDetails(result.error || t('auth.login.failed')));
     }
   };
@@ -51,12 +55,15 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
+        <View style={styles.page}>
           <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.75}>
             <Feather name="arrow-left" size={16} color={colors.primary} />
             <Text style={styles.backText}>{t('common.back')}</Text>
           </TouchableOpacity>
 
+          <View style={styles.heroIcon}>
+            <Feather name="log-in" size={24} color={colors.white} />
+          </View>
           <Text style={styles.title}>{t('auth.login.title')}</Text>
           <Text style={styles.subtitle}>{t('auth.login.subtitle')}</Text>
 
@@ -67,14 +74,19 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             </View>
           )}
 
-          <Input label={t('common.email')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+          <Input label={t('common.email')} placeholder="you@example.com" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
           <PasswordInput
             label={t('common.password')}
+            placeholder="Enter your password"
             value={password}
             onChangeText={setPassword}
             visible={showPassword}
             onToggle={() => setShowPassword((current) => !current)}
           />
+
+          <TouchableOpacity style={styles.forgotButton} onPress={() => onNavigateToForgotPassword?.(email.trim().toLowerCase())} activeOpacity={0.75}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.86}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.signIn')}</Text>}
@@ -87,9 +99,9 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.providerText}>{t('auth.login.providerQuestion')}</Text>
-          <TouchableOpacity onPress={onNavigateToProviderRegistration} activeOpacity={0.75}>
-            <Text style={styles.providerLink}>{t('auth.login.providerLink')}</Text>
+          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
+            <Feather name="briefcase" size={16} color={colors.primary} />
+            <Text style={styles.providerActionText}>Complete provider registration</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -102,7 +114,7 @@ function Input({ label, ...props }) {
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        placeholderTextColor="#98A2B3"
+        placeholderTextColor={colors.muted}
         style={styles.input}
         {...props}
       />
@@ -110,7 +122,7 @@ function Input({ label, ...props }) {
   );
 }
 
-function PasswordInput({ label, value, onChangeText, visible, onToggle }) {
+function PasswordInput({ label, value, onChangeText, visible, onToggle, placeholder }) {
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
@@ -120,7 +132,8 @@ function PasswordInput({ label, value, onChangeText, visible, onToggle }) {
           onChangeText={onChangeText}
           secureTextEntry={!visible}
           autoCapitalize="none"
-          placeholderTextColor="#98A2B3"
+          placeholder={placeholder}
+          placeholderTextColor={colors.muted}
           style={styles.passwordInput}
         />
         <TouchableOpacity onPress={onToggle} activeOpacity={0.75} style={styles.eyeButton}>
@@ -134,48 +147,61 @@ function PasswordInput({ label, value, onChangeText, visible, onToggle }) {
 const createStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.background,
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 28,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: '#D6E0F0',
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 28,
+  page: {
+    flexGrow: 1,
   },
   backButton: {
     alignItems: 'center',
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 5,
-    marginBottom: 12,
+    marginBottom: 22,
   },
   backText: {
     color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
   },
+  heroIcon: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 14,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    width: 56,
+    elevation: 5,
+  },
   title: {
-    color: colors.text,
-    fontSize: 27,
+    color: colors.textStrong,
+    fontSize: 30,
     fontWeight: '900',
     textAlign: 'center',
   },
   subtitle: {
-    color: colors.text,
-    fontSize: 16,
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
     marginBottom: 28,
-    marginTop: 10,
+    marginTop: 8,
     textAlign: 'center',
   },
   errorBox: {
     backgroundColor: colors.dangerSurface,
-    borderColor: '#FCA5A5',
+    borderColor: colors.danger,
     borderRadius: 10,
     borderWidth: 1,
     marginBottom: 14,
@@ -205,23 +231,23 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 7,
   },
   input: {
-    backgroundColor: colors.infoSurface,
-    borderColor: '#C9D8EE',
-    borderRadius: 10,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     color: colors.text,
     fontSize: 15,
-    height: 44,
+    height: 52,
     paddingHorizontal: 14,
   },
   passwordBox: {
     alignItems: 'center',
-    backgroundColor: colors.infoSurface,
-    borderColor: '#C9D8EE',
-    borderRadius: 10,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 44,
+    height: 52,
   },
   passwordInput: {
     color: colors.text,
@@ -232,15 +258,15 @@ const createStyles = (colors) => StyleSheet.create({
   },
   eyeButton: {
     alignItems: 'center',
-    height: 44,
+    height: 52,
     justifyContent: 'center',
-    width: 44,
+    width: 48,
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#1558D6',
-    borderRadius: 9,
-    height: 44,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    height: 52,
     justifyContent: 'center',
     marginTop: 8,
   },
@@ -267,18 +293,29 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  providerText: {
-    color: colors.text,
-    fontSize: 13,
-    marginTop: 10,
-    textAlign: 'center',
+  providerAction: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 16,
+    paddingVertical: 8,
   },
-  providerLink: {
+  forgotButton: {
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+    marginTop: -4,
+    paddingVertical: 4,
+  },
+  forgotText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  providerActionText: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: '800',
-    marginTop: 3,
-    textAlign: 'center',
+    fontWeight: '900',
   },
 });
 

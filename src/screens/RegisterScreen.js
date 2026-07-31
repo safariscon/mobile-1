@@ -11,7 +11,7 @@ let styles;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function RegisterScreen({ onBack, onNavigateToLogin }) {
+export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateToProviderRegistration, onEmailVerificationRequired }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -31,6 +31,7 @@ export default function RegisterScreen({ onBack, onNavigateToLogin }) {
     if (!name.trim()) return setError(t('auth.register.missingName'));
     if (!emailPattern.test(normalizedEmail)) return setError(t('auth.register.invalidEmail'));
     if (!password) return setError(t('auth.register.missingPassword'));
+    if (password.length < 6) return setError('Password must be at least 6 characters.');
     if (password !== confirmPassword) return setError(t('auth.register.passwordMismatch'));
 
     setError('');
@@ -38,6 +39,11 @@ export default function RegisterScreen({ onBack, onNavigateToLogin }) {
     const result = await register(name.trim(), normalizedEmail, password);
     if (!result.success) {
       setError(result.error || t('auth.register.failed'));
+      return;
+    }
+
+    if (result.emailVerification?.required || result.user?.emailVerified === false) {
+      onEmailVerificationRequired?.(normalizedEmail);
       return;
     }
 
@@ -52,17 +58,20 @@ export default function RegisterScreen({ onBack, onNavigateToLogin }) {
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
+        <View style={styles.page}>
           <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.75}>
             <Feather name="arrow-left" size={15} color={colors.primary} />
             <Text style={styles.backText}>{t('common.back')}</Text>
           </TouchableOpacity>
 
+          <View style={styles.heroIcon}>
+            <Feather name="user-plus" size={24} color={colors.white} />
+          </View>
           <Text style={styles.title}>{t('auth.register.title')}</Text>
           <Text style={styles.subtitle}>{t('auth.register.subtitle')}</Text>
 
           <View style={styles.accountType}>
-            <Feather name="user" size={19} color="#1558D6" />
+            <Feather name="user" size={19} color={colors.primary} />
             <Text style={styles.accountTitle}>{t('auth.register.traveler')}</Text>
             <Text style={styles.accountText}>{t('auth.register.travelerHelp')}</Text>
           </View>
@@ -71,9 +80,9 @@ export default function RegisterScreen({ onBack, onNavigateToLogin }) {
           {!!success && <Text style={styles.successText}>{success}</Text>}
 
           <Input label={t('auth.register.fullName')} placeholder={t('auth.register.fullNamePlaceholder')} value={name} onChangeText={setName} />
-          <Input label={t('common.email')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-          <PasswordInput label={t('common.password')} value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword((current) => !current)} />
-          <PasswordInput label={t('auth.register.confirmPassword')} value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmPassword} onToggle={() => setShowConfirmPassword((current) => !current)} />
+          <Input label={t('common.email')} placeholder="you@example.com" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+          <PasswordInput label={t('common.password')} placeholder="Create a secure password" value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword((current) => !current)} />
+          <PasswordInput label={t('auth.register.confirmPassword')} placeholder="Repeat your password" value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmPassword} onToggle={() => setShowConfirmPassword((current) => !current)} />
 
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading} activeOpacity={0.86}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.createAccount')}</Text>}
@@ -85,6 +94,11 @@ export default function RegisterScreen({ onBack, onNavigateToLogin }) {
               <Text style={styles.linkText}>{t('common.signIn')}</Text>
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
+            <Feather name="briefcase" size={16} color={colors.primary} />
+            <Text style={styles.providerActionText}>Complete provider registration</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -95,17 +109,17 @@ function Input({ label, ...props }) {
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput placeholderTextColor="#98A2B3" style={styles.input} {...props} />
+      <TextInput placeholderTextColor={colors.muted} style={styles.input} {...props} />
     </View>
   );
 }
 
-function PasswordInput({ label, value, onChangeText, visible, onToggle }) {
+function PasswordInput({ label, value, onChangeText, visible, onToggle, placeholder }) {
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.passwordBox}>
-        <TextInput value={value} onChangeText={onChangeText} secureTextEntry={!visible} autoCapitalize="none" placeholderTextColor="#98A2B3" style={styles.passwordInput} />
+        <TextInput value={value} onChangeText={onChangeText} secureTextEntry={!visible} autoCapitalize="none" placeholder={placeholder} placeholderTextColor={colors.muted} style={styles.passwordInput} />
         <TouchableOpacity onPress={onToggle} activeOpacity={0.75} style={styles.eyeButton}>
           <Feather name={visible ? 'eye-off' : 'eye'} size={17} color={colors.muted} />
         </TouchableOpacity>
@@ -117,26 +131,38 @@ function PasswordInput({ label, value, onChangeText, visible, onToggle }) {
 const createStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.background,
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 28,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: '#D6E0F0',
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 22,
+  page: {
+    flexGrow: 1,
   },
   backButton: {
     alignItems: 'center',
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 5,
-    marginBottom: 10,
+    marginBottom: 18,
+  },
+  heroIcon: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 14,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    width: 56,
+    elevation: 5,
   },
   backText: {
     color: colors.primary,
@@ -145,83 +171,86 @@ const createStyles = (colors) => StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: 23,
+    color: colors.textStrong,
+    fontSize: 28,
     fontWeight: '900',
     textAlign: 'center',
   },
   subtitle: {
-    color: colors.text,
-    fontSize: 12,
-    marginBottom: 24,
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 22,
     marginTop: 7,
     textAlign: 'center',
   },
   accountType: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderColor: '#1558D6',
-    borderRadius: 7,
+    backgroundColor: colors.infoSurface,
+    borderColor: colors.border,
+    borderRadius: 14,
     borderWidth: 1,
     marginBottom: 12,
-    padding: 13,
+    padding: 14,
   },
   accountTitle: {
-    color: colors.primaryDark,
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
     marginTop: 4,
   },
   accountText: {
     color: colors.muted,
-    fontSize: 10,
+    fontSize: 12,
+    lineHeight: 17,
     marginTop: 5,
   },
   inputGroup: {
-    marginBottom: 9,
+    marginBottom: 13,
   },
   label: {
     color: colors.text,
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 5,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 7,
   },
   input: {
-    backgroundColor: colors.surface,
-    borderColor: '#C9D8EE',
-    borderRadius: 7,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     color: colors.text,
-    fontSize: 13,
-    height: 34,
-    paddingHorizontal: 12,
+    fontSize: 15,
+    height: 52,
+    paddingHorizontal: 14,
   },
   passwordBox: {
     alignItems: 'center',
-    backgroundColor: colors.infoSurface,
-    borderColor: '#C9D8EE',
-    borderRadius: 7,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 34,
+    height: 52,
   },
   passwordInput: {
     color: colors.text,
     flex: 1,
-    fontSize: 13,
+    fontSize: 15,
     height: '100%',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
   },
   eyeButton: {
     alignItems: 'center',
-    height: 34,
+    height: 52,
     justifyContent: 'center',
-    width: 38,
+    width: 48,
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#1558D6',
-    borderRadius: 7,
-    height: 40,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    height: 52,
     justifyContent: 'center',
     marginTop: 12,
   },
@@ -230,14 +259,14 @@ const createStyles = (colors) => StyleSheet.create({
   },
   buttonText: {
     color: colors.white,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '900',
   },
   footer: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 21,
+    marginTop: 22,
   },
   footerText: {
     color: colors.text,
@@ -247,6 +276,19 @@ const createStyles = (colors) => StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     fontWeight: '800',
+  },
+  providerAction: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 16,
+    paddingVertical: 8,
+  },
+  providerActionText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   errorText: {
     color: colors.danger,

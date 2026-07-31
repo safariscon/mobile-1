@@ -36,7 +36,7 @@ const workflow = [
   { step: '5', labelKey: 'home.workflow.enjoy', textKey: 'home.workflow.enjoyText', icon: 'file-text' },
 ];
 
-export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAuth, onBrowseServices, onOpenSettings, onOpenService, onMenuPress }) {
+export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAuth, onBrowseServices, onOpenSettings, onOpenService, onMenuPress, hideTopBar = false }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -87,7 +87,7 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        <View style={styles.topBar}>
+        {!hideTopBar ? <View style={styles.topBar}>
           <TouchableOpacity style={styles.iconButton} onPress={onMenuPress} activeOpacity={0.8}>
             <Feather name="menu" size={20} color={colors.text} />
           </TouchableOpacity>
@@ -120,7 +120,7 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
               </TouchableOpacity>
             </View>
           )}
-        </View>
+        </View> : null}
 
         <View style={[styles.hero, onLoginPress && onRegisterPress && styles.guestHero]}>
           <Image source={{ uri: heroImage }} style={styles.heroImage} />

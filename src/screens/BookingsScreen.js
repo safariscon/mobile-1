@@ -20,6 +20,7 @@ import { API_BASE_URL, apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { toCoordinatePair } from '../lib/directions';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
+import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -192,6 +193,12 @@ export default function BookingsScreen({ onOpenRoute }) {
     }
   }, [isAuthenticated, token]);
 
+  const refreshLiveData = useCallback(() => {
+    loadedPagesRef.current.clear();
+    loadBookings({ page: 1, replace: true, silent: true });
+    loadChangeRequests();
+  }, [loadBookings, loadChangeRequests]);
+
   useEffect(() => {
     loadBookings({ page: 1, replace: true });
     loadChangeRequests();
@@ -199,18 +206,22 @@ export default function BookingsScreen({ onOpenRoute }) {
   }, [loadBookings, loadChangeRequests]);
 
   useEffect(() => {
-    const refreshLiveData = () => {
-      loadedPagesRef.current.clear();
-      loadBookings({ page: 1, replace: true, silent: true });
-      loadChangeRequests();
-    };
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') refreshLiveData();
     });
     return () => {
       subscription.remove();
     };
-  }, [loadBookings, loadChangeRequests]);
+  }, [refreshLiveData]);
+
+  const realtimeRooms = useMemo(() => realtimeUserRooms(user), [user]);
+
+  useRealtimeRefresh({
+    enabled: isAuthenticated,
+    rooms: realtimeRooms,
+    events: ['booking:changed', 'notification:new'],
+    onRefresh: refreshLiveData,
+  });
 
   const summary = useMemo(() => ({
     total: bookings.length,
@@ -241,8 +252,8 @@ export default function BookingsScreen({ onOpenRoute }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          paymentMethod: t('bookingForm.mobileMoney'),
-          paymentReference: `MOMO-${Math.floor(100000 + Math.random() * 900000)}`,
+          paymentMethod: 'mobile-money',
+          senderAccount: user?.phone || bookingId,
         }),
       });
       const data = await parseJson(response);

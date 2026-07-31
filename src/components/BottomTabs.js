@@ -8,7 +8,7 @@ export default function BottomTabs({ activeTab, onChangeTab, tabs = [] }) {
     <View style={[styles.container, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.key;
-        const isCenter = tab.key === 'services' || tab.key === 'seller_catalog' || tab.key === 'admin_stats';
+        const isCenter = tab.key === 'services' || tab.key === 'seller_catalog' || tab.key === 'admin_home';
         return (
           <TouchableOpacity
             key={tab.key}
@@ -44,9 +44,9 @@ export default function BottomTabs({ activeTab, onChangeTab, tabs = [] }) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    height: 82,
-    paddingBottom: 12,
-    paddingTop: 8,
+    height: 66,
+    paddingBottom: 4,
+    paddingTop: 6,
     borderTopWidth: 1,
   },
   tab: {
@@ -56,18 +56,18 @@ const styles = StyleSheet.create({
   },
   centerAction: {
     alignItems: 'center',
-    borderRadius: 24,
-    height: 48,
+    borderRadius: 21,
+    height: 42,
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.22,
     shadowRadius: 12,
-    width: 48,
+    width: 42,
     elevation: 7,
   },
   label: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    marginTop: 5,
+    marginTop: 3,
   },
 });

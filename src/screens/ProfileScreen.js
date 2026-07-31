@@ -3,12 +3,11 @@ import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { languages, setAppLanguage } from '../i18n';
 
 export default function ProfileScreen() {
-  const { i18n, t } = useTranslation();
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors, isDark } = useTheme();
   const styles = createStyles(colors, isDark);
   const isAdmin = user?.role === 'admin';
   const displayName = isAdmin ? 'SafarisCon Admin' : user?.name || t('profile.traveler');
@@ -39,43 +38,35 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Settings Options */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{t('profile.settings')}</Text>
+        <Text style={styles.sectionTitle}>Account security</Text>
       </View>
 
       <View style={styles.optionsList}>
-        <View style={[styles.optionRow, styles.languageRow]}>
+        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
           <View style={styles.optionLeft}>
-            <Feather name="globe" size={20} color={colors.muted} />
-            <Text style={styles.optionLabel}>{t('common.language')}</Text>
+            <Feather name="shield" size={20} color={colors.muted} />
+            <Text style={styles.optionLabel}>Multi-factor authentication</Text>
           </View>
-          <View style={styles.languageButtons}>
-            {languages.map((language) => {
-              const active = i18n.resolvedLanguage === language.code || i18n.language === language.code;
-              return (
-                <TouchableOpacity
-                  key={language.code}
-                  style={[styles.languageButton, active && styles.languageButtonActive]}
-                  onPress={() => setAppLanguage(language.code)}
-                  activeOpacity={0.78}
-                >
-                  <Text style={[styles.languageButtonText, active && styles.languageButtonTextActive]}>{t(language.labelKey)}</Text>
-                </TouchableOpacity>
-              );
-            })}
+          <View style={styles.statusPill}>
+            <Text style={styles.statusPillText}>Set up</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
-        <TouchableOpacity style={styles.optionRow} onPress={toggleTheme} activeOpacity={0.75}>
+        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
           <View style={styles.optionLeft}>
-            <Feather name={isDark ? 'sun' : 'moon'} size={20} color={colors.muted} />
-            <Text style={styles.optionLabel}>{t('profile.darkMode')}</Text>
+            <Feather name="key" size={20} color={colors.muted} />
+            <Text style={styles.optionLabel}>Reset password</Text>
           </View>
-          <View style={[styles.themeSwitch, isDark && styles.themeSwitchActive]}>
-            <View style={[styles.themeKnob, isDark && styles.themeKnobActive]} />
-            <Text style={[styles.themeSwitchText, isDark && styles.themeSwitchTextActive]}>{isDark ? t('profile.on') : t('profile.off')}</Text>
+          <Feather name="chevron-right" size={18} color={colors.muted} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
+          <View style={styles.optionLeft}>
+            <Feather name="smartphone" size={20} color={colors.muted} />
+            <Text style={styles.optionLabel}>Trusted devices</Text>
           </View>
+          <Feather name="chevron-right" size={18} color={colors.muted} />
         </TouchableOpacity>
       </View>
 
@@ -95,8 +86,8 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   },
   content: {
     padding: 18,
-    paddingTop: 62,
-    paddingBottom: 24,
+    paddingTop: 26,
+    paddingBottom: 16,
   },
   eyebrow: {
     color: colors.primary,
@@ -196,10 +187,6 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  languageRow: {
-    alignItems: 'flex-start',
-    gap: 12,
-  },
   optionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -215,64 +202,16 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  themeSwitch: {
-    alignItems: 'center',
-    backgroundColor: isDark ? colors.primaryLight : '#F1F5F9',
-    borderColor: colors.border,
+  statusPill: {
+    backgroundColor: colors.primary,
     borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 7,
-    minWidth: 74,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  themeSwitchActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  themeKnob: {
-    backgroundColor: colors.muted,
-    borderRadius: 6,
-    height: 12,
-    width: 12,
-  },
-  themeKnobActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  themeSwitchText: {
-    color: colors.text,
+  statusPillText: {
+    color: colors.white,
     fontSize: 11,
     fontWeight: '900',
-  },
-  themeSwitchTextActive: {
-    color: '#FFFFFF',
-  },
-  languageButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'flex-end',
-    maxWidth: '58%',
-  },
-  languageButton: {
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  languageButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  languageButtonText: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  languageButtonTextActive: {
-    color: colors.white,
   },
   devNote: {
     color: colors.muted,
