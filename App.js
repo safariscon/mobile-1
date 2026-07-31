@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState, useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -125,10 +125,11 @@ function LanguageGate({ children }) {
 function MainAppContent() {
   useAppTheme();
   const { t } = useTranslation();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { isAuthenticated, user, restoringSession, isTourist, isSeller, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
   const [authScreen, setAuthScreen] = useState(null);
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState(false);
   const [serviceFilters, setServiceFilters] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
@@ -227,16 +228,22 @@ function MainAppContent() {
   let currentScreen = null;
 
   if (!isAuthenticated || isTourist) {
-    roleTabs = [
-      { key: 'home', label: t('common.home'), icon: 'home' },
-      { key: 'services', label: t('common.services'), icon: 'grid' },
-      { key: 'bookings', label: t('tabs.bookings'), icon: 'calendar' },
-      { key: 'profile', label: t('common.profile'), icon: 'user' },
-    ];
+    roleTabs = isAuthenticated
+      ? [
+          { key: 'home', label: t('common.home'), icon: 'home' },
+          { key: 'services', label: t('common.services'), icon: 'grid' },
+          { key: 'bookings', label: t('tabs.bookings'), icon: 'calendar' },
+          { key: 'profile', label: t('common.profile'), icon: 'user' },
+        ]
+      : [
+          { key: 'home', label: t('common.home'), icon: 'home' },
+          { key: 'services', label: t('common.services'), icon: 'grid' },
+        ];
 
     const screens = {
       home: (
         <HomeScreen
+          onMenuPress={() => setDrawerVisible(true)}
           onLoginPress={!isAuthenticated ? () => setAuthScreen('login') : undefined}
           onRegisterPress={!isAuthenticated ? () => setAuthScreen('register') : undefined}
           onRequireAuth={() => setAuthScreen('register')}
@@ -248,7 +255,7 @@ function MainAppContent() {
           onOpenSettings={isAuthenticated ? () => setActiveTab('profile') : undefined}
         />
       ),
-      services: <ServicesScreen initialFilters={serviceFilters} onBack={() => setActiveTab('home')} onOpenService={setSelectedService} onRequireAuth={() => setAuthScreen('register')} />,
+      services: <ServicesScreen initialFilters={serviceFilters} onMenuPress={() => setDrawerVisible(true)} onBack={() => setActiveTab('home')} onOpenService={setSelectedService} onRequireAuth={() => setAuthScreen('register')} />,
       bookings: isAuthenticated ? <BookingsScreen onOpenRoute={setRouteBooking} /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
       profile: isAuthenticated ? <ProfileScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
     };
@@ -287,16 +294,103 @@ function MainAppContent() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
-      <AnnouncementBar
-        fixed
-        onBrowseServices={!isAuthenticated || isTourist ? () => {
-          setServiceFilters(null);
-          setActiveTab('services');
-        } : undefined}
-      />
-      <View style={[styles.content, styles.contentWithAnnouncement, { backgroundColor: colors.background }]}>{currentScreen}</View>
+      {!isAuthenticated ? (
+        <AnnouncementBar
+          fixed
+          onBrowseServices={() => {
+            setServiceFilters(null);
+            setActiveTab('services');
+          }}
+        />
+      ) : null}
+      <View style={[styles.content, !isAuthenticated && styles.contentWithAnnouncement, { backgroundColor: colors.background }]}>{currentScreen}</View>
       <BottomTabs activeTab={activeTab} onChangeTab={setActiveTab} tabs={roleTabs} />
+      <NavigationDrawer
+        visible={drawerVisible}
+        tabs={roleTabs}
+        activeTab={activeTab}
+        isAuthenticated={isAuthenticated}
+        isDark={isDark}
+        user={user}
+        onClose={() => setDrawerVisible(false)}
+        onSelectTab={(tabKey) => {
+          setActiveTab(tabKey);
+          setDrawerVisible(false);
+        }}
+        onLogin={() => {
+          setAuthScreen('login');
+          setDrawerVisible(false);
+        }}
+        onRegister={() => {
+          setAuthScreen('register');
+          setDrawerVisible(false);
+        }}
+      />
     </View>
+  );
+}
+
+function NavigationDrawer({ visible, tabs, activeTab, isAuthenticated, isDark, user, onClose, onSelectTab, onLogin, onRegister }) {
+  useAppTheme();
+  const { colors } = useTheme();
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.drawerBackdrop} onPress={onClose}>
+        <Pressable style={[styles.drawerPanel, { backgroundColor: colors.surface }]} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.drawerHeader}>
+            <View style={[styles.drawerBrandMark, { backgroundColor: colors.primary }]}>
+              <Text style={styles.drawerBrandMarkText}>S</Text>
+            </View>
+            <View style={styles.drawerBrandCopy}>
+              <Text style={[styles.drawerTitle, { color: colors.textStrong }]}>SafarisCon</Text>
+              <Text style={[styles.drawerSubtitle, { color: colors.muted }]}>
+                {isAuthenticated ? user?.name || user?.email || 'Welcome back' : 'Explore Rwanda services'}
+              </Text>
+            </View>
+            <TouchableOpacity style={[styles.drawerClose, { borderColor: colors.border }]} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.drawerItems}>
+            {tabs.map((tab) => {
+              const active = activeTab === tab.key;
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[
+                    styles.drawerItem,
+                    { borderColor: colors.border, backgroundColor: active ? colors.primaryLight : colors.surfaceMuted },
+                  ]}
+                  onPress={() => onSelectTab(tab.key)}
+                  activeOpacity={0.84}
+                >
+                  <Feather name={tab.icon} size={18} color={active ? colors.primary : colors.muted} />
+                  <Text style={[styles.drawerItemText, { color: active ? colors.primaryDark : colors.text }]}>{tab.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {!isAuthenticated ? (
+            <View style={styles.drawerAuthActions}>
+              <TouchableOpacity style={[styles.drawerPrimaryButton, { backgroundColor: colors.primary }]} onPress={onRegister} activeOpacity={0.86}>
+                <Text style={styles.drawerPrimaryText}>Get started</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.drawerSecondaryButton, { borderColor: colors.border }]} onPress={onLogin} activeOpacity={0.86}>
+                <Text style={[styles.drawerSecondaryText, { color: colors.text }]}>Sign in</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          <View style={[styles.drawerFooter, { borderTopColor: colors.border }]}>
+            <Feather name={isDark ? 'moon' : 'sun'} size={15} color={colors.muted} />
+            <Text style={[styles.drawerFooterText, { color: colors.muted }]}>{isDark ? 'Dark mode' : 'Light mode'}</Text>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -542,6 +636,116 @@ const createStyles = (colors) => StyleSheet.create({
     color: colors.primary,
     fontSize: 14,
     fontWeight: '900',
+  },
+  drawerBackdrop: {
+    backgroundColor: 'rgba(2, 6, 23, 0.46)',
+    flex: 1,
+  },
+  drawerPanel: {
+    borderBottomRightRadius: 18,
+    borderTopRightRadius: 18,
+    elevation: 16,
+    height: '100%',
+    padding: 18,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 8, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    width: '82%',
+    maxWidth: 340,
+  },
+  drawerHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 10,
+  },
+  drawerBrandMark: {
+    alignItems: 'center',
+    borderRadius: 12,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  drawerBrandMarkText: {
+    color: '#FFFFFF',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  drawerBrandCopy: {
+    flex: 1,
+  },
+  drawerTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  drawerSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  drawerClose: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  drawerItems: {
+    gap: 10,
+    marginTop: 28,
+  },
+  drawerItem: {
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 48,
+    paddingHorizontal: 13,
+  },
+  drawerItemText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  drawerAuthActions: {
+    gap: 10,
+    marginTop: 24,
+  },
+  drawerPrimaryButton: {
+    alignItems: 'center',
+    borderRadius: 11,
+    height: 48,
+    justifyContent: 'center',
+  },
+  drawerPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  drawerSecondaryButton: {
+    alignItems: 'center',
+    borderRadius: 11,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: 'center',
+  },
+  drawerSecondaryText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  drawerFooter: {
+    alignItems: 'center',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 'auto',
+    paddingTop: 16,
+  },
+  drawerFooterText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
 });
 

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { SelectField } from '../components/FormFields';
@@ -8,6 +8,7 @@ import useServices from '../hooks/useServices';
 import { RWANDA_DISTRICTS } from '../data/formOptions';
 import { languages, setAppLanguage } from '../i18n';
 import { getVisiblePromotion } from '../lib/promotion';
+import { useTheme } from '../context/ThemeContext';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -35,16 +36,19 @@ const workflow = [
   { step: '5', labelKey: 'home.workflow.enjoy', textKey: 'home.workflow.enjoyText', icon: 'file-text' },
 ];
 
-export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAuth, onBrowseServices, onOpenSettings, onOpenService }) {
+export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAuth, onBrowseServices, onOpenSettings, onOpenService, onMenuPress }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
   const { i18n, t } = useTranslation();
+  const { isDark, setThemeMode } = useTheme();
   const { services, loading, error, retry } = useServices();
   const [selectedService, setSelectedService] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
+  const [languageMenuVisible, setLanguageMenuVisible] = useState(false);
+  const [themeMenuVisible, setThemeMenuVisible] = useState(false);
   const shortcutRailRef = useRef(null);
   const workflowRailRef = useRef(null);
   const shortcutOffsetRef = useRef(0);
@@ -84,7 +88,7 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
         contentContainerStyle={styles.content}
       >
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => browseServices()} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.iconButton} onPress={onMenuPress} activeOpacity={0.8}>
             <Feather name="menu" size={20} color={colors.text} />
           </TouchableOpacity>
 
@@ -96,12 +100,14 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
           </View>
 
           {onLoginPress && onRegisterPress ? (
-            <View style={styles.authActions}>
-              <TouchableOpacity style={styles.loginButton} onPress={onLoginPress} activeOpacity={0.82}>
-                <Text style={styles.loginButtonText}>{t('home.login')}</Text>
+            <View style={styles.guestHeaderTools}>
+              <TouchableOpacity style={styles.compactToolButton} onPress={() => setLanguageMenuVisible(true)} activeOpacity={0.82}>
+                <Feather name="globe" size={14} color={colors.primary} />
+                <Text style={styles.compactToolText}>{String(i18n.resolvedLanguage || i18n.language || 'en').slice(0, 2).toUpperCase()}</Text>
+                <Feather name="chevron-down" size={13} color={colors.muted} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.signupButton} onPress={onRegisterPress} activeOpacity={0.82}>
-                <Text style={styles.signupButtonText}>{t('home.register')}</Text>
+              <TouchableOpacity style={styles.iconButton} onPress={() => setThemeMenuVisible(true)} activeOpacity={0.82}>
+                <Feather name={isDark ? 'moon' : 'sun'} size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
           ) : (
@@ -116,38 +122,27 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
           )}
         </View>
 
-        {onLoginPress && onRegisterPress ? (
-          <View style={styles.guestLanguageBar}>
-            <View style={styles.guestLanguageLabel}>
-              <Feather name="globe" size={14} color={colors.primary} />
-              <Text style={styles.guestLanguageText}>{t('common.language')}</Text>
-            </View>
-            <View style={styles.guestLanguageButtons}>
-              {languages.map((language) => {
-                const active = i18n.resolvedLanguage === language.code || i18n.language === language.code;
-                return (
-                  <TouchableOpacity
-                    key={language.code}
-                    style={[styles.guestLanguageButton, active && styles.guestLanguageButtonActive]}
-                    onPress={() => setAppLanguage(language.code)}
-                    activeOpacity={0.78}
-                  >
-                    <Text style={[styles.guestLanguageButtonText, active && styles.guestLanguageButtonTextActive]}>
-                      {language.code.toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.hero}>
+        <View style={[styles.hero, onLoginPress && onRegisterPress && styles.guestHero]}>
           <Image source={{ uri: heroImage }} style={styles.heroImage} />
           <View style={styles.heroOverlay} />
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>{t('home.heroTitle')}</Text>
-            <Text style={styles.heroText}>{t('home.heroText')}</Text>
+            <Text style={[styles.heroTitle, onLoginPress && onRegisterPress && styles.guestHeroTitle]}>
+              {onLoginPress && onRegisterPress ? 'Welcome to SafarisCon' : t('home.heroTitle')}
+            </Text>
+            <Text style={[styles.heroText, onLoginPress && onRegisterPress && styles.guestHeroText]}>
+              {onLoginPress && onRegisterPress ? 'Book hotels, tours, food, rides, and trusted local services across Rwanda.' : t('home.heroText')}
+            </Text>
+            {onLoginPress && onRegisterPress ? (
+              <View style={styles.heroActions}>
+                <TouchableOpacity style={styles.heroPrimaryButton} onPress={onRegisterPress} activeOpacity={0.86}>
+                  <Text style={styles.heroPrimaryText}>Get started</Text>
+                  <Feather name="arrow-right" size={16} color={colors.white} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.heroSecondaryButton} onPress={() => browseServices()} activeOpacity={0.86}>
+                  <Text style={styles.heroSecondaryText}>Browse services</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -315,6 +310,13 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
             );
           })}
         </ScrollView>
+
+        {onLoginPress && onRegisterPress ? (
+          <View style={styles.appIntroBand}>
+            <Text style={styles.appIntroTitle}>Everything for your trip, in one mobile app.</Text>
+            <Text style={styles.appIntroText}>SafarisCon connects visitors with verified services, simple booking requests, route support, and local providers in one clean place.</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <ServiceDetailsModal
@@ -326,7 +328,80 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
           onRequireAuth?.();
         }}
       />
+
+      <ChoiceSheet
+        visible={languageMenuVisible}
+        title={t('common.language')}
+        onClose={() => setLanguageMenuVisible(false)}
+        options={languages.map((language) => ({
+          key: language.code,
+          label: `${language.shortLabel}  ${language.nativeName}`,
+          active: i18n.resolvedLanguage === language.code || i18n.language === language.code,
+          icon: 'globe',
+          onPress: () => {
+            setAppLanguage(language.code);
+            setLanguageMenuVisible(false);
+          },
+        }))}
+      />
+
+      <ChoiceSheet
+        visible={themeMenuVisible}
+        title="Theme"
+        onClose={() => setThemeMenuVisible(false)}
+        options={[
+          {
+            key: 'light',
+            label: 'Light mode',
+            active: !isDark,
+            icon: 'sun',
+            onPress: () => {
+              setThemeMode('light');
+              setThemeMenuVisible(false);
+            },
+          },
+          {
+            key: 'dark',
+            label: 'Dark mode',
+            active: isDark,
+            icon: 'moon',
+            onPress: () => {
+              setThemeMode('dark');
+              setThemeMenuVisible(false);
+            },
+          },
+        ]}
+      />
     </View>
+  );
+}
+
+function ChoiceSheet({ visible, title, options, onClose }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.choiceBackdrop} onPress={onClose}>
+        <Pressable style={styles.choiceCard} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.choiceHeader}>
+            <Text style={styles.choiceTitle}>{title}</Text>
+            <TouchableOpacity style={styles.choiceClose} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={17} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          {options.map((option) => (
+            <TouchableOpacity
+              key={option.key}
+              style={[styles.choiceRow, option.active && styles.choiceRowActive]}
+              onPress={option.onPress}
+              activeOpacity={0.84}
+            >
+              <Feather name={option.icon} size={17} color={option.active ? colors.primary : colors.muted} />
+              <Text style={[styles.choiceRowText, option.active && styles.choiceRowTextActive]}>{option.label}</Text>
+              {option.active ? <Feather name="check" size={17} color={colors.primary} /> : null}
+            </TouchableOpacity>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -337,7 +412,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   content: {
     paddingHorizontal: 16,
-    paddingTop: 46,
+    paddingTop: 22,
     paddingBottom: 28,
   },
   topBar: {
@@ -374,102 +449,45 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
-  authActions: {
+  guestHeaderTools: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 6,
+    gap: 8,
   },
   headerActions: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 6,
   },
-  guestLanguageBar: {
+  compactToolButton: {
     alignItems: 'center',
-    alignSelf: 'flex-end',
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-    marginTop: -4,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    gap: 5,
+    height: 36,
+    paddingHorizontal: 9,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
-  guestLanguageLabel: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
-  guestLanguageText: {
+  compactToolText: {
     color: colors.text,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  guestLanguageButtons: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  guestLanguageButton: {
-    alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: 7,
-    borderWidth: 1,
-    height: 25,
-    justifyContent: 'center',
-    minWidth: 30,
-    paddingHorizontal: 6,
-  },
-  guestLanguageButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  guestLanguageButtonText: {
-    color: colors.muted,
-    fontSize: 10,
     fontWeight: '900',
-  },
-  guestLanguageButtonTextActive: {
-    color: colors.white,
-  },
-  loginButton: {
-    alignItems: 'center',
-    borderColor: colors.primary,
-    borderRadius: 9,
-    borderWidth: 1,
-    height: 32,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  loginButtonText: {
-    color: colors.primary,
     fontSize: 11,
-    fontWeight: '900',
-  },
-  signupButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 9,
-    height: 32,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  signupButtonText: {
-    color: colors.white,
-    fontSize: 11,
-    fontWeight: '900',
   },
   hero: {
     borderRadius: 18,
     height: 178,
     overflow: 'hidden',
+  },
+  guestHero: {
+    borderRadius: 22,
+    height: 390,
   },
   heroImage: {
     height: '100%',
@@ -492,6 +510,11 @@ const createStyles = (colors) => StyleSheet.create({
     lineHeight: 28,
     maxWidth: 255,
   },
+  guestHeroTitle: {
+    fontSize: 34,
+    lineHeight: 40,
+    maxWidth: 295,
+  },
   heroText: {
     color: '#EAF2FF',
     fontSize: 12,
@@ -499,6 +522,47 @@ const createStyles = (colors) => StyleSheet.create({
     lineHeight: 17,
     marginTop: 7,
     maxWidth: 250,
+  },
+  guestHeroText: {
+    fontSize: 14,
+    lineHeight: 21,
+    maxWidth: 285,
+  },
+  heroActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 18,
+  },
+  heroPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 8,
+    height: 48,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  heroPrimaryText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  heroSecondaryButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderColor: 'rgba(255, 255, 255, 0.72)',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  heroSecondaryText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
   },
   searchWrap: {
     alignItems: 'center',
@@ -509,7 +573,7 @@ const createStyles = (colors) => StyleSheet.create({
     flexDirection: 'row',
     height: 48,
     marginHorizontal: 8,
-    marginTop: -23,
+    marginTop: 12,
     paddingLeft: 14,
     paddingRight: 6,
     shadowColor: colors.shadow,
@@ -758,6 +822,88 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     marginTop: 8,
+  },
+  appIntroBand: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 20,
+    padding: 16,
+  },
+  appIntroTitle: {
+    color: colors.textStrong,
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 23,
+  },
+  appIntroText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginTop: 7,
+  },
+  choiceBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(2, 6, 23, 0.42)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 22,
+  },
+  choiceCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    maxWidth: 330,
+    padding: 14,
+    width: '100%',
+  },
+  choiceHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  choiceTitle: {
+    color: colors.textStrong,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  choiceClose: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: 15,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  choiceRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  choiceRowActive: {
+    backgroundColor: colors.primaryLight,
+    borderColor: colors.primary,
+  },
+  choiceRowText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  choiceRowTextActive: {
+    color: colors.primaryDark,
   },
 });
 

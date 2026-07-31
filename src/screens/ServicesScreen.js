@@ -47,7 +47,7 @@ function uniqueOptions(items, getValue, emptyLabel) {
   return [['', emptyLabel], ...Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1]))];
 }
 
-export default function ServicesScreen({ onBack, onRequireAuth, onOpenService, initialFilters }) {
+export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onOpenService, initialFilters }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -256,8 +256,8 @@ export default function ServicesScreen({ onBack, onRequireAuth, onOpenService, i
   const header = (
     <>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.iconButton} onPress={onBack} activeOpacity={0.8}>
-          <Feather name="arrow-left" size={19} color={colors.text} />
+        <TouchableOpacity style={styles.iconButton} onPress={onMenuPress || onBack} activeOpacity={0.8}>
+          <Feather name={onMenuPress ? 'menu' : 'arrow-left'} size={19} color={colors.text} />
         </TouchableOpacity>
         <View>
           <Text style={styles.topTitle}>{t('servicesScreen.title')}</Text>
@@ -654,6 +654,7 @@ const createStyles = (colors) => StyleSheet.create({
   searchControls: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 10,
   },
   availableToggle: {
     alignItems: 'center',

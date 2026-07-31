@@ -194,7 +194,7 @@ export function SelectField({
                       <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{item.label}</Text>
                       {!!item.description && <Text style={styles.optionDescription}>{item.description}</Text>}
                     </View>
-                    <Feather name="chevron-right" size={17} color={selected ? colors.primary : '#CBD5E1'} />
+                    <Feather name="chevron-right" size={17} color={selected ? colors.primary : colors.muted} />
                   </TouchableOpacity>
                 );
               }}
@@ -389,7 +389,7 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 7,
   },
   input: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.input,
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
@@ -408,7 +408,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   pressableField: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.input,
     borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,
@@ -419,8 +419,8 @@ const createStyles = (colors) => StyleSheet.create({
     paddingHorizontal: 10,
   },
   pressableFieldSelected: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: '#9CC2FA',
+    backgroundColor: colors.input,
+    borderColor: colors.primary,
   },
   fieldLeadIcon: {
     alignItems: 'center',
@@ -504,7 +504,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   searchBox: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.input,
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
@@ -522,7 +522,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   optionRow: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.input,
     borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,

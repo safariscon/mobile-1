@@ -10,7 +10,7 @@ function getWebLocalBackendUrl() {
 }
 
 const localBackendBaseUrl = Platform.select({
-  android: 'http://10.0.2.2:5000/api',
+  android: 'http://192.168.88.117:5000/api',
   web: getWebLocalBackendUrl(),
   default: 'http://localhost:5000/api',
 });

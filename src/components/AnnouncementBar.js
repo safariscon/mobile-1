@@ -9,7 +9,7 @@ import useThemedStyles from '../theme/useThemedStyles';
 let colors = lightColors;
 let styles;
 
-export const ANNOUNCEMENT_BAR_SPACE = 60;
+export const ANNOUNCEMENT_BAR_SPACE = 48;
 export const DEFAULT_ANNOUNCEMENTS = [
   {
     text: 'Welcome to SafarisCon, the best way to get services anywhere you want across Rwanda destinations.',
@@ -141,7 +141,7 @@ const createStyles = (colors) => StyleSheet.create({
     flexDirection: 'row',
     gap: 7,
     marginBottom: 12,
-    minHeight: 38,
+    minHeight: 34,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
@@ -155,15 +155,15 @@ const createStyles = (colors) => StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.16,
     shadowRadius: 12,
-    top: 8,
+    top: 7,
     zIndex: 30,
   },
   text: {
     color: colors.white,
     flex: 1,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    lineHeight: 15,
+    lineHeight: 14,
   },
   linkButton: {
     borderBottomColor: colors.white,
@@ -171,7 +171,7 @@ const createStyles = (colors) => StyleSheet.create({
   },
   linkText: {
     color: colors.white,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   count: {
