@@ -19,8 +19,10 @@ import BookingMap from '../components/BookingMap';
 import { API_BASE_URL, apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { toCoordinatePair } from '../lib/directions';
-import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
+import { getAmountDue, isPaidBooking, isPayableBooking } from '../lib/session';
+import PaymentSheet from '../components/PaymentSheet';
+import { cancelBooking } from '../api/services';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -51,11 +53,15 @@ function formatStatus(value) {
 }
 
 function hasDepositPaid(booking) {
-  return Boolean(booking?.detailsUnlocked || booking?.providerDetailsUnlocked || booking?.depositPaid || PAID_STATUSES.includes(booking?.paymentStatus));
+  return isPaidBooking(booking);
 }
 
 function canPayDeposit(booking) {
-  return ['confirmed', 'waiting-for-payment'].includes(booking?.status) || booking?.paymentStatus === 'pending';
+  return isPayableBooking(booking);
+}
+
+function getDepositAmount(booking) {
+  return getAmountDue(booking);
 }
 
 function getBusiness(booking) {
@@ -76,7 +82,7 @@ function getLocation(booking, t) {
   const business = getBusiness(booking);
   const location = business?.serviceLocation || business?.publicLocation || business?.locationDetails || {};
   return booking?.destinationLocation
-    || [location.province, location.district, location.sector].filter(Boolean).join(', ')
+    || [location.city, location.country, location.province, location.district, location.sector].filter(Boolean).join(', ')
     || business?.location
     || t('common.rwanda');
 }
@@ -90,10 +96,6 @@ function getSchedule(booking) {
   const dateText = [formatDate(date), endDate && endDate !== date ? formatDate(endDate) : ''].filter(Boolean).join(' - ');
   const timeText = [startTime, endTime].filter(Boolean).join(' - ');
   return [dateText, timeText].filter((item) => item && item !== '-').join(' at ') || '-';
-}
-
-function getDepositAmount(booking) {
-  return Number(booking?.depositAmount || Math.round(Number(booking?.totalPrice || 0) * 0.3));
 }
 
 function getDetailRows(details = {}) {
@@ -116,7 +118,7 @@ function statusTone(status) {
   return { bg: '#F3F4F6', text: '#475569' };
 }
 
-export default function BookingsScreen({ onOpenRoute }) {
+export default function BookingsScreen({ onOpenRoute, focusBookingId }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -132,6 +134,7 @@ export default function BookingsScreen({ onOpenRoute }) {
   const [changeRequests, setChangeRequests] = useState([]);
   const [changeLoading, setChangeLoading] = useState(false);
   const [changeError, setChangeError] = useState('');
+  const [payBooking, setPayBooking] = useState(null);
   const abortRef = useRef(null);
   const loadedPagesRef = useRef(new Set());
   const pageSize = 20;
@@ -214,6 +217,15 @@ export default function BookingsScreen({ onOpenRoute }) {
     };
   }, [refreshLiveData]);
 
+  useEffect(() => {
+    if (!focusBookingId || !bookings.length) return;
+    const match = bookings.find((item) => String(item._id || item.id) === String(focusBookingId) || String(item.bookingCode) === String(focusBookingId));
+    if (match) {
+      setSelectedBooking(match);
+      if (canPayDeposit(match) && !hasDepositPaid(match)) setPayBooking(match);
+    }
+  }, [focusBookingId, bookings]);
+
   const realtimeRooms = useMemo(() => realtimeUserRooms(user), [user]);
 
   useRealtimeRefresh({
@@ -242,32 +254,8 @@ export default function BookingsScreen({ onOpenRoute }) {
   }, [loadBookings, loading, loadingMore, pagination]);
 
   const handlePayDeposit = async (bookingId) => {
-    trackAnalytics(ANALYTICS_EVENTS.PAY_DEPOSIT_CLICKED, { bookingId });
-    setLoading(true);
-    try {
-      const response = await apiFetch(`/bookings/${bookingId}/pay`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          paymentMethod: 'mobile-money',
-          senderAccount: user?.phone || bookingId,
-        }),
-      });
-      const data = await parseJson(response);
-      if (!response.ok) throw new Error(t('customerBookings.paymentProcessingFailed'));
-      trackAnalytics(ANALYTICS_EVENTS.PAYMENT_SUCCESS, { bookingId, paymentId: data.payment?._id });
-      loadedPagesRef.current.clear();
-      await loadBookings({ page: 1, replace: true, silent: true });
-      setSelectedBooking(data.booking || null);
-    } catch (requestError) {
-      trackAnalytics(ANALYTICS_EVENTS.PAYMENT_FAILED, { bookingId });
-      setError(t('customerBookings.paymentFailed'));
-    } finally {
-      setLoading(false);
-    }
+    const booking = bookings.find((item) => String(item._id || item.id) === String(bookingId)) || selectedBooking;
+    if (booking) setPayBooking(booking);
   };
 
   if (!isAuthenticated) {
@@ -353,6 +341,17 @@ export default function BookingsScreen({ onOpenRoute }) {
         }}
         t={t}
       />
+      <PaymentSheet
+        visible={Boolean(payBooking)}
+        booking={payBooking}
+        onClose={() => setPayBooking(null)}
+        onPaid={(paidBooking) => {
+          setPayBooking(null);
+          setSelectedBooking(paidBooking);
+          loadedPagesRef.current.clear();
+          loadBookings({ page: 1, replace: true, silent: true });
+        }}
+      />
     </View>
   );
 }
@@ -396,6 +395,8 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
   const [changeSaving, setChangeSaving] = useState(false);
   const [changeMessage, setChangeMessage] = useState('');
   const [changeError, setChangeError] = useState('');
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [cancelMessage, setCancelMessage] = useState('');
   if (!booking) return null;
   const business = getBusiness(booking);
   const depositPaid = hasDepositPaid(booking);
@@ -413,8 +414,28 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
     : '';
   const canOpenDirections = locationUnlocked && (destinationCoordinates || destinationAddress);
   const submittedRows = getDetailRows(details);
-  const remainingBalance = Math.max(0, Number(booking.remainingBalance ?? Number(booking.totalPrice || 0) - Number(booking.amountPaid || 0)));
   const canRequestChange = depositPaid && !['completed', 'cancelled', 'rejected'].includes(booking.status);
+  const canCancelDirect = !['completed', 'cancelled', 'rejected'].includes(booking.status);
+
+  const submitCancel = async () => {
+    setCancelSaving(true);
+    setCancelMessage('');
+    try {
+      const data = await cancelBooking(booking._id || booking.id, reason.trim() || 'Customer cancelled from mobile.');
+      const fee = data.cancellationFee || data.fee;
+      const refund = data.refundAmount || data.refund;
+      setCancelMessage([
+        data.message || 'Booking cancelled.',
+        refund != null ? `Refund: RWF ${Number(refund).toLocaleString()}` : '',
+        fee != null ? `Fee: RWF ${Number(fee).toLocaleString()}` : '',
+      ].filter(Boolean).join(' '));
+      onChangeSubmitted?.(data);
+    } catch (cancelError) {
+      setChangeError(cancelError.message || 'Could not cancel booking.');
+    } finally {
+      setCancelSaving(false);
+    }
+  };
 
   const submitChangeRequest = async () => {
     if (!reason.trim()) {
@@ -472,7 +493,6 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
             [t('customerBookings.totalPrice'), formatMoney(booking.totalPrice, t)],
             [t('customerBookings.deposit'), formatMoney(getDepositAmount(booking), t)],
             [t('customerBookings.amountPaid'), formatMoney(booking.amountPaid, t)],
-            [t('customerBookings.remainingBalance'), formatMoney(remainingBalance, t)],
             [t('customerBookings.schedule'), getSchedule(booking)],
             [t('customerBookings.quantityGuests'), details.quantity || booking.guests || booking.quantity || 1],
           ]} />
@@ -488,7 +508,7 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
             </Text>
           </View>
 
-          {!!booking.adminResponseMessage && <Text style={styles.adminMessage}>{booking.adminResponseMessage}</Text>}
+          {!!cancelMessage && <Text style={styles.formSuccess}>{cancelMessage}</Text>}
 
           <Text style={styles.sectionTitle}>{t('customerBookings.providerInfo')}</Text>
           <DetailGrid rows={[
@@ -561,6 +581,12 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
               >
                 <Feather name="repeat" size={16} color={colors.primary} />
                 <Text style={styles.secondaryActionText}>Request change</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canCancelDirect ? (
+              <TouchableOpacity style={styles.secondaryAction} onPress={submitCancel} disabled={cancelSaving} activeOpacity={0.84}>
+                {cancelSaving ? <ActivityIndicator color={colors.primary} /> : <Feather name="x-circle" size={16} color={colors.primary} />}
+                <Text style={styles.secondaryActionText}>Cancel booking</Text>
               </TouchableOpacity>
             ) : null}
           </View>

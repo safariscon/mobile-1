@@ -1,5 +1,6 @@
 import { apiFetch, endpoints } from '../config/api';
 import i18n from '../i18n';
+import { isDraftListing } from '../lib/listings';
 
 const SERVICES_CACHE_TTL_MS = 60 * 1000;
 const servicesCache = new Map();
@@ -263,7 +264,7 @@ async function fetchLegacyCatalog({ page, limit, signal }) {
   if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
   const payload = await response.json();
   const paginated = normalizePaginatedPayload(payload, 'hotels');
-  const services = paginated.items.map((item, index) => {
+  const services = paginated.items.filter((item) => !isDraftListing(item)).map((item, index) => {
     const details = normalizeLegacyServiceDetails(item, index);
     legacyServiceDetailsCache.set(details.id, details);
     return normalizeService({ ...item, hotelId: details.hotelId, sourceType: 'hotel' }, index);
@@ -292,7 +293,7 @@ export async function fetchServices({ page = 1, limit = 20, signal, force = fals
         data = await fetchLegacyCatalog({ page, limit, signal: requestSignal });
       } else {
         data = {
-          services: paginated.items.map((item, index) => {
+          services: paginated.items.filter((item) => !isDraftListing(item)).map((item, index) => {
             if (item?.sourceType === 'hotel' || Array.isArray(item?.availabilityTable?.rows)) {
               const details = normalizeLegacyServiceDetails(item, index);
               legacyServiceDetailsCache.set(details.id, details);
@@ -355,6 +356,35 @@ export async function submitBookingRequest(payload) {
     throw error;
   }
 
+  return data;
+}
+
+export async function fetchMarketplaceSettings(signal) {
+  const response = await apiFetch('/marketplace-settings', { signal, timeoutMs: 8000, skipAuth: true });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { bookingMode: 'manual', bookingRules: [] };
+  return data.settings || data || { bookingMode: 'manual', bookingRules: [] };
+}
+
+export function resolveBookingMode(settings, service) {
+  const globalMode = settings?.bookingMode || 'manual';
+  if (globalMode === 'service-level') return service?.bookingMode || 'manual';
+  return globalMode;
+}
+
+export async function cancelBooking(bookingId, reason) {
+  const response = await apiFetch(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, cancellationReason: reason }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.message || i18n.t('backend.returned', { status: response.status }));
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
   return data;
 }
 

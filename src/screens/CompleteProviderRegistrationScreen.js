@@ -1,27 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
+import { SelectField, TextField } from '../components/FormFields';
+import PolicyLinks from '../components/PolicyLinks';
 import { useAuth } from '../context/AuthContext';
+import { CHECKBOX_COPY } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
 let styles;
 
-export default function CompleteProviderRegistrationScreen({ onBack, onNavigateToLogin, onEmailVerificationRequired }) {
+export default function CompleteProviderRegistrationScreen({ onBack, onNavigateToLogin, onEmailVerificationRequired, initialSellerId = '' }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
   const { t } = useTranslation();
-  const { completeProviderRegistration, loading } = useAuth();
+  const { completeProviderRegistration, fetchProviderOnboarding, loading } = useAuth();
   const [providerName, setProviderName] = useState('');
   const [providerEmail, setProviderEmail] = useState('');
-  const [sellerId, setSellerId] = useState('');
+  const [sellerId, setSellerId] = useState(initialSellerId);
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [lockedInvite, setLockedInvite] = useState(false);
+  const [payoutMethod, setPayoutMethod] = useState('momo');
+  const [accountName, setAccountName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const id = String(initialSellerId || sellerId || '').trim();
+    if (!id) return undefined;
+    let active = true;
+    fetchProviderOnboarding(id).then((result) => {
+      if (!active || !result.success) return;
+      const data = result.data || {};
+      setProviderName(data.providerName || data.name || '');
+      setProviderEmail(data.providerEmail || data.email || '');
+      setSellerId(data.sellerId || id);
+      setLockedInvite(true);
+    });
+    return () => { active = false; };
+  }, [initialSellerId]);
 
   const handleSubmit = async () => {
     if (!providerName.trim() || !providerEmail.trim() || !sellerId.trim() || !newPassword) {
@@ -36,6 +59,14 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
       setError(t('auth.register.passwordMismatch'));
       return;
     }
+    if (!acceptedTerms) {
+      setError('Accept the terms to complete provider registration.');
+      return;
+    }
+    if (!accountName.trim() || !accountNumber.trim()) {
+      setError('Payout account name and number are required.');
+      return;
+    }
 
     setError('');
     const result = await completeProviderRegistration({
@@ -44,6 +75,13 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
       sellerId: sellerId.trim().toUpperCase(),
       generatedPassword,
       newPassword,
+      acceptedTerms: true,
+      payoutDetails: {
+        method: payoutMethod,
+        accountName: accountName.trim(),
+        accountNumber: accountNumber.trim(),
+        msisdn: payoutMethod === 'momo' ? accountNumber.trim() : undefined,
+      },
     });
 
     if (!result.success) {
@@ -77,12 +115,21 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-          <Input placeholder={t('auth.provider.providerName')} value={providerName} onChangeText={setProviderName} />
-          <Input placeholder={t('common.email')} value={providerEmail} onChangeText={setProviderEmail} autoCapitalize="none" keyboardType="email-address" />
-          <Input placeholder={t('auth.provider.providerId')} value={sellerId} onChangeText={setSellerId} autoCapitalize="characters" />
+          <Input placeholder={t('auth.provider.providerName')} value={providerName} onChangeText={setProviderName} editable={!lockedInvite} />
+          <Input placeholder={t('common.email')} value={providerEmail} onChangeText={setProviderEmail} autoCapitalize="none" keyboardType="email-address" editable={!lockedInvite} />
+          <Input placeholder={t('auth.provider.providerId')} value={sellerId} onChangeText={setSellerId} autoCapitalize="characters" editable={!lockedInvite} />
           <Input placeholder={`${t('auth.provider.temporaryPassword')} (optional)`} value={generatedPassword} onChangeText={setGeneratedPassword} secureTextEntry autoCapitalize="none" />
           <Input placeholder={t('auth.provider.newPassword')} value={newPassword} onChangeText={setNewPassword} secureTextEntry autoCapitalize="none" />
           <Input placeholder={t('auth.register.confirmPassword')} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry autoCapitalize="none" />
+          <SelectField label="Payout method" value={payoutMethod} options={[['momo', 'Mobile Money'], ['bank', 'Bank']]} onChange={setPayoutMethod} searchable={false} />
+          <TextField label="Payout account name" value={accountName} onChangeText={setAccountName} />
+          <TextField label={payoutMethod === 'momo' ? 'MoMo number / MSISDN' : 'Bank account number'} value={accountNumber} onChangeText={setAccountNumber} keyboardType="phone-pad" />
+          <TouchableOpacity style={styles.checkbox} onPress={() => setAcceptedTerms((current) => !current)} activeOpacity={0.84}>
+            <View style={[styles.box, acceptedTerms && styles.boxActive]}>
+              {acceptedTerms ? <Feather name="check" size={13} color={colors.white} /> : null}
+            </View>
+            <Text style={styles.checkboxText}>{CHECKBOX_COPY.register}</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSubmit} disabled={loading} activeOpacity={0.86}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('auth.provider.submit')}</Text>}
@@ -94,6 +141,7 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
               <Text style={styles.linkText}>{t('auth.provider.loginHere')}</Text>
             </TouchableOpacity>
           </View>
+          <PolicyLinks compact />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -219,5 +267,31 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 9,
+  },
+  checkbox: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  box: {
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 22,
+    width: 22,
+  },
+  boxActive: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+  },
+  checkboxText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

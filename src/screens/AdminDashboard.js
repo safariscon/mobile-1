@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   RefreshControl,
@@ -18,10 +17,14 @@ import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { languages, setAppLanguage } from '../i18n';
+import { useAppDialog } from '../components/AppDialog';
 import BookingQrScanner from '../components/BookingQrScanner';
+import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
+import PolicyLinks from '../components/PolicyLinks';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
+import { isDraftListing, matchesServiceFilter, reviewStatusOf } from '../lib/listings';
 
 let colors = lightColors;
 let styles;
@@ -29,10 +32,10 @@ let styles;
 const ADMIN_PAGE_META = {
   businesses: {
     title: 'Welcome admin',
-    description: 'Review businesses, providers, services, bookings, and marketplace operations from one mobile workspace.',
-    icon: 'shield',
+    description: 'Review services, providers, bookings, and marketplace operations from one mobile workspace.',
+    icon: 'layers',
   },
-  services: { title: 'Services', description: 'Check published services, availability, booking modes, and catalog quality.', icon: 'layers' },
+  services: { title: 'Booking modes', description: 'Check published services, availability, booking modes, and catalog quality.', icon: 'sliders' },
   users: { title: 'Users', description: 'Manage customers, admins, and provider accounts in the marketplace.', icon: 'users' },
   'register-business': { title: 'Service providers', description: 'Create provider accounts and share onboarding credentials.', icon: 'user-plus' },
   bookings: { title: 'Bookings', description: 'Review customer booking requests, approvals, payments, and verification state.', icon: 'calendar' },
@@ -69,6 +72,36 @@ function label(value) {
   return String(value || '-').replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function listingBelongsToUser(listing, person) {
+  const ids = [person?._id, person?.id, person?.sellerId, person?.providerId].filter(Boolean).map(String);
+  const emails = [person?.email].filter(Boolean).map((value) => String(value).toLowerCase());
+  const listingIds = [
+    listing?.sellerId,
+    listing?.providerId,
+    listing?.ownerId,
+    listing?.userId,
+    listing?.createdBy,
+    listing?.owner?._id,
+    listing?.seller?._id,
+    listing?.user?._id,
+  ].filter(Boolean).map(String);
+  if (listingIds.some((id) => ids.includes(id))) return true;
+  const listingEmails = [listing?.email, listing?.ownerEmail, listing?.sellerEmail, listing?.user?.email]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+  return listingEmails.some((email) => emails.includes(email));
+}
+
+function isServiceProvider(person) {
+  const role = String(person?.role || '').toLowerCase();
+  if (['hotel', 'supplier', 'seller', 'provider', 'business'].includes(role)) return true;
+  return Boolean(person?.sellerId || person?.providerId);
+}
+
+function providerIdOf(person) {
+  return person?.sellerId || person?.providerId || '';
+}
+
 function extractBookingLookup(value) {
   const text = String(value || '').trim();
   if (!text) return '';
@@ -81,7 +114,7 @@ async function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-export default function AdminDashboard({ tab }) {
+export default function AdminDashboard({ tab, hideChrome = false, section = 'all' }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -97,8 +130,8 @@ export default function AdminDashboard({ tab }) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
+  const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
   const [stats, setStats] = useState({});
   const [businesses, setBusinesses] = useState([]);
   const [services, setServices] = useState([]);
@@ -116,6 +149,8 @@ export default function AdminDashboard({ tab }) {
   const [verifiedBooking, setVerifiedBooking] = useState(null);
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [selectedService, setSelectedService] = useState(null);
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [decision, setDecision] = useState({ totalPrice: '', commissionPercentage: '10', paymentReason: t('admin.defaultPaymentReason') });
   const [analytics, setAnalytics] = useState(null);
 
@@ -132,9 +167,9 @@ export default function AdminDashboard({ tab }) {
       },
     });
     const data = await readJson(response);
-    if (!response.ok) throw new Error(t('backend.returned', { status: response.status }));
+    if (!response.ok) throw new Error(data.message || data.error || t('backend.returned', { status: response.status }));
     return data;
-  }, [token]);
+  }, [t, token]);
 
   const requestFirst = useCallback(async (paths, options = {}) => {
     let lastError = null;
@@ -148,8 +183,34 @@ export default function AdminDashboard({ tab }) {
       });
       const data = await readJson(response);
       if (response.ok) return data;
-      lastError = new Error(data.message || t('backend.returned', { status: response.status }));
+      lastError = new Error(data.message || data.error || t('backend.returned', { status: response.status }));
       if (![404, 405].includes(response.status)) throw lastError;
+    }
+    throw lastError || new Error(t('admin.actionFailed'));
+  }, [t, token]);
+
+  const requestDelete = useCallback(async (paths, body) => {
+    let lastError = null;
+    for (const path of paths) {
+      const attempts = [
+        { method: 'DELETE' },
+        body ? { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : null,
+      ].filter(Boolean);
+      for (const options of attempts) {
+        const response = await apiFetch(path, {
+          ...options,
+          headers: {
+            ...(options.headers || {}),
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const data = await readJson(response);
+        if (response.ok) return data;
+        lastError = new Error(data.message || data.error || t('backend.returned', { status: response.status }));
+        if ([404, 405].includes(response.status)) break;
+        if ([400, 411, 415, 422].includes(response.status) && !options.body && body) continue;
+        throw lastError;
+      }
     }
     throw lastError || new Error(t('admin.actionFailed'));
   }, [t, token]);
@@ -157,7 +218,6 @@ export default function AdminDashboard({ tab }) {
   const loadData = useCallback(async (silent = false) => {
     if (!isAuthenticated || !token) return;
     if (!silent) setLoading(true);
-    setError('');
     try {
       const [statsResp, businessResp, serviceResp, bookingResp, userResp, transactionResp, rebookResp] = await Promise.all([
         request('/admin/dashboard-stats'),
@@ -194,12 +254,12 @@ export default function AdminDashboard({ tab }) {
       });
       setMarketplaceSettings(settingsResp.settings || defaultMarketplaceSettings);
     } catch (requestError) {
-      setError(t('admin.loadFailed'));
+      showResult(t('common.error'), requestError.message || t('admin.loadFailed'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [defaultMarketplaceSettings, isAuthenticated, request, t, token]);
+  }, [defaultMarketplaceSettings, isAuthenticated, request, showResult, t, token]);
 
   useEffect(() => {
     loadData();
@@ -221,31 +281,47 @@ export default function AdminDashboard({ tab }) {
     loadData(true);
   };
 
-  const runAction = async (action, successMessage) => {
+  const runAction = async (action, successMessage, { silent = false } = {}) => {
     setSaving(true);
-    setError('');
-    setInfo('');
     try {
       const response = await action();
-      setInfo(successMessage || t('admin.saved'));
       await loadData(true);
+      if (!silent && successMessage) {
+        showResult(t('common.success'), successMessage, 'success');
+      }
       return response;
     } catch (requestError) {
-      setError(t('admin.actionFailed'));
+      showResult(t('common.error'), requestError.message || t('admin.actionFailed'), 'error');
       return null;
     } finally {
       setSaving(false);
     }
   };
 
-  const reviewBusiness = (businessId, status) => runAction(
-    () => requestFirst([`/admin/businesses/${businessId}/approval`, `/admin/businesses/${businessId}/verification`], {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(status === 'approved' ? { status, commissionPercentage: Number(marketplaceSettings.defaultCommissionPercentage || 10) } : { status }),
-    }),
-    status === 'approved' ? t('admin.businessPosted') : t('admin.businessRejected')
-  );
+  const reviewBusiness = (businessId, status, { confirm = false } = {}) => {
+    const run = () => runAction(
+      () => requestFirst([`/admin/businesses/${businessId}/approval`, `/admin/businesses/${businessId}/verification`], {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(status === 'approved' ? { status, commissionPercentage: Number(marketplaceSettings.defaultCommissionPercentage || 10) } : { status }),
+      }),
+      status === 'approved' ? 'Service approved.' : 'Service rejected.'
+    );
+    if (!confirm) return run();
+    askConfirm({
+      title: status === 'approved' ? 'Approve this service?' : 'Reject this service?',
+      message: status === 'approved'
+        ? 'This service will be posted to the marketplace.'
+        : 'The provider will be notified and the service will not stay public.',
+      confirmLabel: status === 'approved' ? t('actions.approve') : t('actions.reject'),
+      destructive: status !== 'approved',
+      onConfirm: () => {
+        closeDialog();
+        run();
+      },
+    });
+    return null;
+  };
 
   const reviewBusinessImages = (businessId, action) => runAction(
     () => request(`/admin/businesses/${businessId}/image-review`, {
@@ -253,22 +329,158 @@ export default function AdminDashboard({ tab }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action }),
     }),
-    action === 'approve' ? 'Business images approved and published.' : 'Business images rejected.'
+    action === 'approve' ? 'Service images approved and published.' : 'Service images rejected.'
   );
 
-  const deleteBusiness = (businessId) => {
-    Alert.alert(t('admin.deleteBusinessTitle'), t('admin.deleteBusinessText'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('actions.delete'), style: 'destructive', onPress: () => runAction(() => request(`/admin/businesses/${businessId}`, { method: 'DELETE' }), t('admin.businessDeleted')) },
+  const deactivateProviderListings = async (person) => {
+    const payload = JSON.stringify({
+      status: 'unavailable',
+      inventoryStatus: 'unavailable',
+      availabilityStatus: 'unavailable',
+      active: false,
+      published: false,
+    });
+    const ownedBusinesses = businesses.filter((item) => listingBelongsToUser(item, person));
+    const ownedServices = services.filter((item) => listingBelongsToUser(item, person));
+    const options = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload };
+    await Promise.allSettled([
+      ...ownedBusinesses.map((item) => requestFirst([
+        `/admin/businesses/${item._id || item.id}/availability`,
+        `/admin/businesses/${item._id || item.id}`,
+      ], options)),
+      ...ownedServices.map((item) => requestFirst([
+        `/admin/services/${item._id || item.id}`,
+        `/admin/businesses/${item._id || item.id}`,
+      ], options)),
     ]);
   };
 
-  const deleteUser = (userId) => {
-    Alert.alert(t('admin.deleteUserTitle'), t('admin.deleteUserText'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('actions.delete'), style: 'destructive', onPress: () => runAction(() => request(`/admin/users/${userId}`, { method: 'DELETE' }), t('admin.userDeleted')) },
-    ]);
+  const deleteBusiness = (business) => {
+    const id = business._id || business.id;
+    askConfirm({
+      title: 'Delete this service?',
+      message: 'The service provider will be emailed about this action. The service will be removed from the marketplace.',
+      confirmLabel: t('actions.delete'),
+      destructive: true,
+      onConfirm: () => {
+        closeDialog();
+        runAction(
+          () => requestDelete(
+            [`/admin/businesses/${id}`, `/admin/services/${id}`],
+            { notifyEmail: true, emailUser: true }
+          ),
+          'Service deleted.'
+        );
+      },
+    });
   };
+
+  const deleteUser = (person) => {
+    const userId = person?._id || person?.id;
+    const provider = isServiceProvider(person);
+    askConfirm({
+      title: provider ? 'Delete this service provider?' : 'Delete this customer?',
+      message: provider
+        ? `${person.name || person.email} will be emailed about this deletion. All of their services will be set to inactive and unavailable, and they will no longer appear in the marketplace.`
+        : `${person.name || person.email} will be emailed about this deletion. They will not be able to sign in again until they register a new account.`,
+      confirmLabel: t('actions.delete'),
+      destructive: true,
+      onConfirm: () => {
+        closeDialog();
+        runAction(async () => {
+          if (provider) await deactivateProviderListings(person);
+          return requestDelete([`/admin/users/${userId}`], {
+            notifyEmail: true,
+            emailUser: true,
+            deactivateServices: provider,
+            setServicesUnavailable: provider,
+            setServicesInactive: provider,
+          });
+        }, t('admin.userDeleted'));
+      },
+    });
+  };
+
+  const bulkDeleteUsers = () => {
+    if (!selectedUserIds.length) return;
+    const selectedUsers = users.filter((item) => selectedUserIds.includes(item._id || item.id));
+    const hasProvider = selectedUsers.some((item) => isServiceProvider(item));
+    askConfirm({
+      title: `Delete ${selectedUserIds.length} users?`,
+      message: hasProvider
+        ? 'Each selected user will be emailed. Service providers’ listings will be set inactive and unavailable.'
+        : 'Each selected user will be emailed. Customers will not be able to sign in again until they register a new account.',
+      confirmLabel: t('actions.delete'),
+      destructive: true,
+      onConfirm: () => {
+        closeDialog();
+        runAction(async () => {
+          await Promise.allSettled(selectedUsers.filter(isServiceProvider).map((item) => deactivateProviderListings(item)));
+          return request('/admin/users/bulk', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userIds: selectedUserIds,
+              notifyEmail: true,
+              emailUser: true,
+              deactivateServices: hasProvider,
+              setServicesUnavailable: hasProvider,
+              setServicesInactive: hasProvider,
+            }),
+          });
+        }, 'Selected users deleted.').then((response) => {
+          if (response) setSelectedUserIds([]);
+        });
+      },
+    });
+  };
+
+  const markCommissionCollected = (transaction) => runAction(
+    () => request(`/admin/transactions/${transaction._id || transaction.id || transaction.transactionId}/commission`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commissionStatus: 'collected' }),
+    }),
+    'Commission marked collected.'
+  );
+
+  const syncPayout = (transaction) => runAction(
+    () => request(`/admin/payouts/${transaction.payoutId || transaction._id || transaction.id}/sync`, { method: 'POST' }),
+    'Payout sync requested.'
+  );
+
+  const reviewService = (serviceId, status, { confirm = false } = {}) => {
+    const run = () => runAction(
+      () => request(`/admin/services/${serviceId}/approval`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      }),
+      status === 'approved' ? 'Service approved.' : 'Service rejected.'
+    );
+    if (!confirm) return run();
+    askConfirm({
+      title: status === 'approved' ? 'Approve this service?' : 'Reject this service?',
+      message: status === 'approved'
+        ? 'This service will be posted to the marketplace.'
+        : 'The service provider will be notified and the listing will be rejected.',
+      confirmLabel: status === 'approved' ? t('actions.approve') : t('actions.reject'),
+      destructive: status !== 'approved',
+      onConfirm: () => {
+        closeDialog();
+        run();
+      },
+    });
+    return null;
+  };
+
+  const openServiceReview = (service) => runAction(
+    () => request(`/admin/services/${service._id || service.id}`),
+    '',
+    { silent: true }
+  ).then((response) => {
+    setSelectedService(response?.service || service);
+  });
 
   const saveAnnouncement = () => runAction(
     () => request('/admin/announcement', {
@@ -350,7 +562,13 @@ export default function AdminDashboard({ tab }) {
     if (!lookup) return Promise.resolve(null);
     setVerificationLookup(lookup);
     return runAction(
-      () => request(`/admin/booking-verification/${encodeURIComponent(lookup)}`),
+      async () => {
+        try {
+          return await request(`/admin/booking-verification/${encodeURIComponent(lookup)}`);
+        } catch (_error) {
+          return request(`/verify/${encodeURIComponent(lookup)}`);
+        }
+      },
       t('admin.bookingFound')
     ).then((response) => {
       if (response?.booking) setVerifiedBooking(response.booking);
@@ -386,27 +604,80 @@ export default function AdminDashboard({ tab }) {
     'Seller notification marked.'
   );
 
-  const loadAnalytics = () => runAction(async () => {
+  const loadAnalytics = (options = {}) => runAction(async () => {
     const [overview, serviceRows, payments] = await Promise.all([
       request('/admin/analytics/overview'),
       request('/admin/analytics/services'),
       request('/admin/analytics/payments'),
     ]);
-    return { message: t('admin.analyticsRefreshed'), overview, serviceRows, payments };
-  }).then((response) => {
+    return { overview, serviceRows, payments };
+  }, t('admin.analyticsRefreshed'), { silent: !!options.silent }).then((response) => {
     if (response) setAnalytics(response);
   });
 
   useEffect(() => {
     if (activeTab === 'insights' && !analytics && !saving) {
-      loadAnalytics();
+      loadAnalytics({ silent: true });
     }
   }, [activeTab, analytics, saving]);
 
   const providerUsers = useMemo(
-    () => users.filter((item) => ['hotel', 'supplier'].includes(item.role)),
+    () => users.filter((item) => isServiceProvider(item)),
     [users]
   );
+  const visibleUsers = useMemo(() => {
+    if (section === 'providers') return users.filter((item) => isServiceProvider(item));
+    if (section === 'customers') return users.filter((item) => !isServiceProvider(item) && item.role !== 'admin');
+    return users;
+  }, [section, users]);
+  const visibleBusinesses = useMemo(
+    () => businesses.filter((item) => !isDraftListing(item) && matchesServiceFilter(item, section || 'all')),
+    [businesses, section]
+  );
+  const visibleServices = useMemo(
+    () => services.filter((item) => !isDraftListing(item)),
+    [services]
+  );
+  const openOverflow = (title, items) => setOverflow({ visible: true, title, items: items.filter(Boolean) });
+  const closeOverflow = () => setOverflow({ visible: false, title: 'Actions', items: [] });
+
+  const openBusinessMenu = (business) => {
+    const status = reviewStatusOf(business);
+    const approved = ['approved', 'posted'].includes(status);
+    const rejected = status === 'rejected';
+    const canDelete = approved || rejected;
+    const id = business._id || business.id;
+    openOverflow(business.businessName || business.name || 'Service', [
+      { key: 'view', icon: 'eye', label: t('actions.view'), onPress: () => setSelectedBusiness(business) },
+      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => reviewBusiness(id, 'approved', { confirm: true }) } : null,
+      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => reviewBusiness(id, 'rejected', { confirm: true }) } : null,
+      business.imageReviewStatus === 'pending_image_review'
+        ? { key: 'approve-images', icon: 'image', label: 'Approve images', onPress: () => reviewBusinessImages(id, 'approve') }
+        : null,
+      business.imageReviewStatus === 'pending_image_review'
+        ? { key: 'reject-images', icon: 'slash', label: 'Reject images', onPress: () => reviewBusinessImages(id, 'reject') }
+        : null,
+      canDelete ? { key: 'delete', icon: 'trash-2', label: t('actions.delete'), destructive: true, onPress: () => deleteBusiness(business) } : null,
+    ]);
+  };
+
+  const openUserMenu = (account) => {
+    openOverflow(account.name || account.email || t('admin.unnamedUser'), [
+      { key: 'delete', icon: 'trash-2', label: t('actions.delete'), destructive: true, onPress: () => deleteUser(account) },
+    ]);
+  };
+
+  const openListingMenu = (service) => {
+    const status = String(serviceStatusValue(service)).toLowerCase();
+    const approved = ['approved', 'posted', 'available'].includes(status);
+    const rejected = status === 'rejected';
+    openOverflow(service.title || service.name || t('admin.unnamedUser'), [
+      { key: 'review', icon: 'eye', label: t('admin.reviewService'), onPress: () => openServiceReview(service) },
+      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => reviewService(service._id || service.id, 'approved', { confirm: true }) } : null,
+      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => reviewService(service._id || service.id, 'rejected', { confirm: true }) } : null,
+    ]);
+  };
+  const pendingCount = businesses.filter((item) => !isDraftListing(item) && reviewStatusOf(item) === 'pending').length;
   const currentAnnouncement = announcementForm.items?.[0] || { text: '', linkLabel: '', linkUrl: '' };
   const activePage = ADMIN_PAGE_META[activeTab] || ADMIN_PAGE_META.businesses;
 
@@ -416,6 +687,7 @@ export default function AdminDashboard({ tab }) {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primary]} />}
       >
+        {hideChrome ? null : (
         <View style={styles.header}>
           <View style={styles.brandIcon}>
             <Text style={styles.brandIconText}>S</Text>
@@ -429,38 +701,44 @@ export default function AdminDashboard({ tab }) {
             <Feather name="bell" size={16} color={colors.primary} />
           </TouchableOpacity>
         </View>
+        )}
 
-        {activeTab === 'businesses' ? <View style={styles.metrics}>
+        {activeTab === 'insights' ? <View style={styles.metrics}>
           <Metric label={t('admin.tabs.users')} value={stats.totalUsers ?? users.length} />
-          <Metric label={t('admin.tabs.businesses')} value={stats.totalBusinesses ?? businesses.length} />
+          <Metric label={t('admin.tabs.services')} value={stats.totalServices ?? stats.totalBusinesses ?? visibleBusinesses.length} />
           <Metric label={t('admin.tabs.bookings')} value={stats.totalBookings ?? bookings.length} />
           <Metric label={t('admin.tabs.revenue')} value={formatMoney(stats.totalRevenue || transactionSummary?.totalReceived || 0)} />
+          <Metric label="Pending" value={pendingCount} />
         </View> : null}
 
-        {!!info && <Text style={styles.infoText}>{info}</Text>}
-        {!!error && <Text style={styles.errorText}>{error}</Text>}
         {loading ? <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 18 }} /> : null}
 
         {activeTab === 'businesses' && (
-          <Section title={t('admin.tabs.businesses')}>
-            {businesses.map((business) => (
-              <Card key={business._id || business.id}>
-                <Text style={styles.cardTitle}>{business.businessName || business.name}</Text>
-                <Text style={styles.cardMeta}>{business.businessType || business.type} - {business.location || business.locationDetails?.district || t('common.rwanda')}</Text>
-                <Text style={styles.cardText}>{business.description || t('admin.noDescription')}</Text>
-                <Badge value={business.approvalStatus || business.verificationStatus || business.status || 'pending'} />
-                {business.imageReviewStatus === 'pending_image_review' ? <Badge value="pending image review" /> : null}
-                {business.imageReviewStatus === 'rejected' ? <Badge value="images rejected" /> : null}
-                <View style={styles.actionRow}>
-                  <SmallButton label={t('actions.view')} onPress={() => setSelectedBusiness(business)} />
-                  <SmallButton label={t('actions.post')} tone="success" onPress={() => reviewBusiness(business._id || business.id, 'approved')} />
-                  <SmallButton label={t('actions.reject')} tone="danger" onPress={() => reviewBusiness(business._id || business.id, 'rejected')} />
-                  {business.imageReviewStatus === 'pending_image_review' ? <SmallButton label="Approve images" tone="success" onPress={() => reviewBusinessImages(business._id || business.id, 'approve')} /> : null}
-                  {business.imageReviewStatus === 'pending_image_review' ? <SmallButton label="Reject images" tone="danger" onPress={() => reviewBusinessImages(business._id || business.id, 'reject')} /> : null}
-                  <SmallButton label={t('actions.delete')} tone="muted" onPress={() => deleteBusiness(business._id || business.id)} />
+          <Section title={t('admin.tabs.services')}>
+            {!visibleBusinesses.length && !loading ? <Text style={styles.cardText}>{t('admin.noServices')}</Text> : null}
+            {visibleBusinesses.map((business) => {
+              const status = reviewStatusOf(business);
+              return (
+                <View key={business._id || business.id} style={styles.reviewCard}>
+                  <TouchableOpacity onPress={() => setSelectedBusiness(business)} activeOpacity={0.88}>
+                    <View style={styles.reviewTitleRow}>
+                      <Text style={styles.reviewTitle}>{business.businessName || business.name || 'Untitled service'}</Text>
+                      <View style={[styles.statusPill, styles[`statusPill${statusTone(status)}`]]}>
+                        <Text style={[styles.statusPillText, styles[`statusPillText${statusTone(status)}`]]}>{label(status)}</Text>
+                      </View>
+                      <MenuTrigger onPress={() => openBusinessMenu(business)} />
+                    </View>
+                    <Text style={styles.reviewMeta}>{label(business.businessType || business.type || 'Service')}</Text>
+                    <Text style={styles.reviewLocation} numberOfLines={2}>
+                      {business.location || [business.locationDetails?.district, business.locationDetails?.sector].filter(Boolean).join(', ') || t('common.rwanda')}
+                    </Text>
+                    <Text style={styles.reviewText} numberOfLines={3}>{business.description || t('admin.noDescription')}</Text>
+                    {business.imageReviewStatus === 'pending_image_review' ? <Text style={styles.statusNote}>New images are waiting for review.</Text> : null}
+                    {business.imageReviewStatus === 'rejected' ? <Text style={styles.statusNoteDanger}>New images were rejected.</Text> : null}
+                  </TouchableOpacity>
                 </View>
-              </Card>
-            ))}
+              );
+            })}
           </Section>
         )}
 
@@ -506,6 +784,8 @@ export default function AdminDashboard({ tab }) {
             <Field label={t('admin.defaultCommission')} value={String(marketplaceSettings.defaultCommissionPercentage ?? 10)} onChangeText={(value) => setMarketplaceSettings((current) => ({ ...current, defaultCommissionPercentage: value }))} keyboardType="number-pad" />
             <Field label={t('admin.rulesOneLine')} value={(marketplaceSettings.bookingRules || []).join('\n')} onChangeText={(text) => setMarketplaceSettings((current) => ({ ...current, bookingRules: text.split('\n') }))} multiline />
             <PrimaryButton label={t('admin.saveRules')} loading={saving} onPress={() => saveMarketplaceSettings()} />
+            <Text style={styles.settingsGroupTitle}>Policies</Text>
+            <PolicyLinks />
           </Section>
         )}
 
@@ -522,15 +802,17 @@ export default function AdminDashboard({ tab }) {
                 <Text style={styles.cardText}>Status: {label(provider.businessStatus || provider.businessReviewStatus || provider.status || 'active')}</Text>
                 <View style={styles.actionRow}>
                   <SmallButton label="Manage account" onPress={() => setActiveTab('users')} />
-                  <SmallButton label={t('actions.delete')} tone="danger" onPress={() => deleteUser(provider._id || provider.id)} />
+                  <SmallButton label={t('actions.delete')} tone="danger" onPress={() => deleteUser(provider)} />
                 </View>
               </Card>
             ))}
 
-            <Text style={styles.settingsGroupTitle}>Add provider</Text>
-            <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
-            <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
-            <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+            <Text style={styles.settingsGroupTitle}>Add service provider</Text>
+            <View style={styles.createForm}>
+              <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
+              <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
+              <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+            </View>
             {onboardingCredentials ? (
               <View style={styles.noticeBox}>
                 <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
@@ -543,32 +825,68 @@ export default function AdminDashboard({ tab }) {
 
         {activeTab === 'users' && (
           <Section title={t('admin.tabs.users')}>
-            {users.map((user) => (
-              <Card key={user._id || user.id}>
-                <Text style={styles.cardTitle}>{user.name || t('admin.unnamedUser')}</Text>
-                <Text style={styles.cardMeta}>{user.email}</Text>
-                <Text style={styles.cardText}>{t('admin.role')}: {['hotel', 'supplier'].includes(user.role) ? t('admin.provider') : user.role}</Text>
-                <Text style={styles.cardText}>{t('admin.providerId')}: {user.sellerId || '-'}</Text>
-                <SmallButton label={t('actions.delete')} tone="danger" onPress={() => deleteUser(user._id || user.id)} />
-              </Card>
-            ))}
+            {section === 'providers' ? (
+              <View style={styles.createForm}>
+                <Text style={styles.settingsGroupTitle}>{t('admin.createProviderTitle')}</Text>
+                <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
+                <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
+                <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+                {onboardingCredentials ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
+                    <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
+                    <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            {selectedUserIds.length ? <PrimaryButton label={`Delete selected (${selectedUserIds.length})`} loading={saving} onPress={bulkDeleteUsers} /> : null}
+            {visibleUsers.map((account) => {
+              const userId = account._id || account.id;
+              const selected = selectedUserIds.includes(userId);
+              const providerId = providerIdOf(account);
+              return (
+                <View key={userId} style={styles.userCard}>
+                  <TouchableOpacity
+                    style={styles.userCheck}
+                    onPress={() => setSelectedUserIds((current) => selected ? current.filter((id) => id !== userId) : [...current, userId])}
+                    activeOpacity={0.84}
+                  >
+                    <View style={[styles.checkbox, selected && styles.checkboxActive]}>
+                      {selected ? <Feather name="check" size={13} color={colors.white} /> : null}
+                    </View>
+                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.userTitleRow}>
+                      <Text style={[styles.cardTitle, { flex: 1 }]}>{account.name || t('admin.unnamedUser')}</Text>
+                      <MenuTrigger onPress={() => openUserMenu(account)} />
+                    </View>
+                    <Text style={styles.cardMeta}>{account.email}</Text>
+                    <Text style={styles.cardText}>{t('admin.role')}: {['hotel', 'supplier'].includes(account.role) ? t('admin.provider') : account.role}</Text>
+                    {providerId ? <Text style={styles.cardText}>{t('admin.providerId')}: {providerId}</Text> : null}
+                  </View>
+                </View>
+              );
+            })}
           </Section>
         )}
 
         {activeTab === 'services' && (
-          <Section title={t('admin.tabs.services')}>
-            {services.map((service) => (
-              <Card key={service._id || service.id}>
-                <Text style={styles.cardTitle}>{service.title || service.name}</Text>
-                <Text style={styles.cardMeta}>{service.serviceType || service.category} - {service.status || 'available'}</Text>
-                <Text style={styles.cardText}>{t('admin.availability')}: {service.availabilityText || service.availableQuantity || 0}</Text>
-                <ModeSelector value={service.bookingMode || 'manual'} onChange={(mode) => updateServiceMode(service, mode)} compact />
-              </Card>
+          <Section title="Booking modes">
+            {!services.length && !loading ? <Text style={styles.cardText}>{t('admin.noServices')}</Text> : null}
+            {visibleServices.map((service) => (
+              <AdminServiceCard
+                key={service._id || service.id}
+                service={service}
+                onReview={() => openServiceReview(service)}
+                onOpenMenu={() => openListingMenu(service)}
+                onChangeMode={(mode) => updateServiceMode(service, mode)}
+              />
             ))}
           </Section>
         )}
 
-        {activeTab === 'bookings' && (
+        {activeTab === 'bookings' && (!section || section === 'bookings') && (
           <Section title={t('admin.tabs.bookings')}>
             {bookings.map((booking) => (
               <Card key={booking._id || booking.id}>
@@ -581,7 +899,7 @@ export default function AdminDashboard({ tab }) {
                   setDecision({
                     totalPrice: String(booking.totalPrice || booking.bookingDetails?.listedPriceRwf || ''),
                     commissionPercentage: String(booking.commissionPercentage || marketplaceSettings.defaultCommissionPercentage || 10),
-                    paymentReason: booking.paymentReason || '30% deposit to confirm booking and unlock provider details.',
+                    paymentReason: booking.paymentReason || 'Pay in full. Money is held until the cancel window ends.',
                   });
                 }} />
               </Card>
@@ -589,7 +907,7 @@ export default function AdminDashboard({ tab }) {
           </Section>
         )}
 
-        {activeTab === 'rebook-requests' && (
+        {activeTab === 'bookings' && section === 'rebook' && (
           <Section title="Manage Re-book Requests">
             {!rebookRequests.length ? <Text style={styles.cardText}>No re-book requests yet.</Text> : null}
             {rebookRequests.map((requestItem) => (
@@ -621,7 +939,7 @@ export default function AdminDashboard({ tab }) {
           </Section>
         )}
 
-        {activeTab === 'verification' && (
+        {activeTab === 'bookings' && section === 'verify' && (
           <Section title={t('admin.verifyBooking')}>
             <Field label={t('admin.verifyLookup')} value={verificationLookup} onChangeText={setVerificationLookup} autoCapitalize="characters" />
             <View style={styles.actionRow}>
@@ -646,7 +964,9 @@ export default function AdminDashboard({ tab }) {
 
         {activeTab === 'insights' && (
           <Section title="Insights">
-            <PrimaryButton label={t('admin.refreshAnalytics')} loading={saving} onPress={loadAnalytics} />
+            <View style={styles.insightActions}>
+              <PrimaryButton label={t('admin.refreshAnalytics')} loading={saving} onPress={() => loadAnalytics()} />
+            </View>
             <View style={styles.metrics}>
               <Metric label={t('admin.views')} value={analytics?.overview?.summary?.views || 0} />
               <Metric label={t('admin.formsOpened')} value={analytics?.overview?.summary?.bookingFormsOpened || 0} />
@@ -673,26 +993,26 @@ export default function AdminDashboard({ tab }) {
                 <Text style={styles.cardText}>{t('admin.views')}: {service.views || 0} - {t('admin.submitted')}: {service.bookingSubmitted || 0} - {t('admin.paid')}: {service.paymentSuccess || 0}</Text>
               </Card>
             ))}
+          </Section>
+        )}
 
-            <Text style={styles.insightSubTitle}>Revenue</Text>
+        {activeTab === 'revenue' && (
+          <Section title="Revenue">
             <View style={styles.metrics}>
-              <Metric label={t('admin.received')} value={formatMoney(transactionSummary?.totalReceived || 0)} />
-              <Metric label={t('admin.commission')} value={formatMoney(transactionSummary?.commissionEarned || 0)} />
-              <Metric label={t('admin.due')} value={formatMoney(transactionSummary?.commissionDue || 0)} />
+              <Metric label="Gross booking payments" value={formatMoney(transactionSummary?.totalReceived || stats.totalRevenue || 0)} />
+              <Metric label="Platform revenue" value={formatMoney(transactionSummary?.commissionEarned || 0)} />
+              <Metric label="Provider payables" value={formatMoney(transactionSummary?.providerPayables || transactionSummary?.payoutsDue || 0)} />
+              <Metric label="Pending payouts" value={formatMoney(transactionSummary?.pendingPayouts || transactionSummary?.commissionDue || 0)} />
             </View>
-            {transactions.slice(0, 5).map((tx) => (
+            {transactions.map((tx) => (
               <Card key={tx._id || tx.transactionId}>
                 <Text style={styles.cardTitle}>{tx.transactionId || tx._id}</Text>
-                <Text style={styles.cardText}>{t('admin.deposit')}: {formatMoney(tx.amount)} - {t('admin.commission')}: {formatMoney(tx.commissionAmount)}</Text>
-              </Card>
-            ))}
-
-            <Text style={styles.insightSubTitle}>Activity</Text>
-            {[...bookings.slice(0, 5), ...services.slice(0, 5), ...businesses.slice(0, 5)].map((item, index) => (
-              <Card key={`${item._id || item.id || index}-insight-activity`}>
-                <Text style={styles.cardTitle}>{item.bookingCode || item.title || item.name || t('admin.activityItem')}</Text>
-                <Text style={styles.cardText}>{label(item.status || item.approvalStatus || item.paymentStatus || t('admin.updated'))}</Text>
-                <Text style={styles.cardMeta}>{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : item.createdAt ? new Date(item.createdAt).toLocaleString() : '-'}</Text>
+                <Text style={styles.cardText}>{t('admin.payment')}: {formatMoney(tx.amount)} - {t('admin.commission')}: {formatMoney(tx.commissionAmount)}</Text>
+                <Text style={styles.cardText}>Commission status: {label(tx.commissionStatus || 'due')}</Text>
+                <View style={styles.actionRow}>
+                  <SmallButton label="Mark collected" tone="success" onPress={() => markCommissionCollected(tx)} />
+                  {tx.payoutId || tx._id ? <SmallButton label="Sync payout" onPress={() => syncPayout(tx)} /> : null}
+                </View>
               </Card>
             ))}
           </Section>
@@ -711,6 +1031,25 @@ export default function AdminDashboard({ tab }) {
       />
 
       <BusinessModal business={selectedBusiness} onClose={() => setSelectedBusiness(null)} />
+      <ServiceReviewModal
+        service={selectedService}
+        saving={saving}
+        onClose={() => setSelectedService(null)}
+        onApprove={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })}
+        onReject={() => {
+          const serviceId = selectedService?._id || selectedService?.id;
+          askConfirm({
+            title: 'Reject this service?',
+            message: 'The service provider will be notified and the listing will be rejected.',
+            confirmLabel: t('actions.reject'),
+            destructive: true,
+            onConfirm: () => {
+              closeDialog();
+              reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
+            },
+          });
+        }}
+      />
       <BookingQrScanner
         visible={scannerOpen}
         title={t('admin.verifyBooking')}
@@ -726,6 +1065,13 @@ export default function AdminDashboard({ tab }) {
         onApprove={approveBooking}
         onReject={rejectBooking}
       />
+      <OverflowMenu
+        visible={overflow.visible}
+        title={overflow.title}
+        items={overflow.items}
+        onClose={closeOverflow}
+      />
+      {dialogNode}
     </View>
   );
 }
@@ -763,6 +1109,82 @@ function Section({ title, children }) {
 
 function Card({ children }) {
   return <View style={styles.card}>{children}</View>;
+}
+
+function serviceImageUri(service) {
+  if (Array.isArray(service?.images) && service.images[0]) return service.images[0];
+  return service?.coverImage || service?.image || service?.thumbnail || null;
+}
+
+function serviceProviderName(service) {
+  return service?.businessName || service?.hotelName || service?.providerName || service?.sellerName || service?.ownerName || '';
+}
+
+function serviceLocationText(service) {
+  return [
+    service?.generalLocation,
+    service?.serviceLocation?.city,
+    service?.serviceLocation?.country,
+    service?.location,
+  ].filter(Boolean).join(' · ');
+}
+
+function serviceStatusValue(service) {
+  return service?.status || service?.approvalStatus || 'available';
+}
+
+function statusTone(status) {
+  const value = String(status || '').toLowerCase();
+  if (['unavailable', 'rejected', 'inactive', 'blocked'].includes(value)) return 'danger';
+  if (value.includes('pending') || value.includes('review')) return 'warning';
+  return 'success';
+}
+
+function AdminServiceCard({ service, onReview, onChangeMode, onOpenMenu }) {
+  const { t } = useTranslation();
+  const imageUri = serviceImageUri(service);
+  const status = serviceStatusValue(service);
+  const tone = statusTone(status);
+  const remaining = service.availabilityText || service.availableQuantity || service.quantityRemaining || 0;
+  const providerName = serviceProviderName(service);
+  const locationText = serviceLocationText(service);
+
+  return (
+    <View style={styles.serviceCard}>
+      <TouchableOpacity style={styles.serviceTop} onPress={onReview} activeOpacity={0.88}>
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.serviceThumb} />
+        ) : (
+          <View style={styles.serviceThumbFallback}>
+            <Feather name="layers" size={22} color={colors.primary} />
+          </View>
+        )}
+        <View style={styles.serviceBody}>
+          <View style={styles.serviceTitleRow}>
+            <Text style={styles.serviceTitle} numberOfLines={2}>{service.title || service.name || t('admin.unnamedUser')}</Text>
+            <View style={[styles.statusPill, styles[`statusPill${tone}`]]}>
+              <Text style={[styles.statusPillText, styles[`statusPillText${tone}`]]}>{label(status)}</Text>
+            </View>
+            {onOpenMenu ? <MenuTrigger onPress={onOpenMenu} /> : null}
+          </View>
+          <Text style={styles.serviceCategory} numberOfLines={1}>{label(service.serviceType || service.category || t('common.services'))}</Text>
+          {providerName ? <Text style={styles.serviceProvider} numberOfLines={1}>{providerName}</Text> : null}
+          {locationText ? <Text style={styles.serviceLocation} numberOfLines={1}>{locationText}</Text> : null}
+          <View style={styles.serviceMetaRow}>
+            <View style={styles.remainingChip}>
+              <Feather name="package" size={12} color={colors.muted} />
+              <Text style={styles.remainingChipText}>{t('seller.remaining', { count: remaining })}</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      <View style={styles.serviceModeBlock}>
+        <Text style={styles.serviceModeLabel}>{t('admin.bookingMode')}</Text>
+        <ModeSelector value={service.bookingMode || 'manual'} onChange={onChangeMode} compact />
+      </View>
+    </View>
+  );
 }
 
 function Metric({ label, value }) {
@@ -827,10 +1249,15 @@ function ModeSelector({ value, onChange, compact }) {
   };
 
   return (
-    <View style={[styles.modeRow, compact && { marginTop: 10 }]}>
+    <View style={compact ? styles.modeTrack : styles.modeRow}>
       {['manual', 'automatic', 'service-level'].filter((mode) => !compact || mode !== 'service-level').map((mode) => (
-        <TouchableOpacity key={mode} style={[styles.modeButton, value === mode && styles.modeActive]} onPress={() => onChange(mode)} activeOpacity={0.84}>
-          <Text style={[styles.modeText, value === mode && styles.modeTextActive]}>{modeLabel(mode)}</Text>
+        <TouchableOpacity
+          key={mode}
+          style={[compact ? styles.modeChip : styles.modeButton, value === mode && (compact ? styles.modeChipActive : styles.modeActive)]}
+          onPress={() => onChange(mode)}
+          activeOpacity={0.84}
+        >
+          <Text style={[compact ? styles.modeChipText : styles.modeText, value === mode && styles.modeTextActive]}>{modeLabel(mode)}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -844,7 +1271,7 @@ function BusinessModal({ business, onClose }) {
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.modalScreen}>
         <ScrollView contentContainerStyle={styles.modalContent}>
-          <ModalHeader title={t('admin.businessDetails')} onClose={onClose} />
+          <ModalHeader title="Service details" onClose={onClose} />
           <Detail label={t('admin.name')} value={business.businessName || business.name} />
           <Detail label={t('admin.type')} value={business.businessType || business.type} />
           <Detail label={t('admin.status')} value={business.approvalStatus || business.verificationStatus || business.status} />
@@ -866,6 +1293,31 @@ function BusinessModal({ business, onClose }) {
               </View>
             </>
           ) : null}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function ServiceReviewModal({ service, saving, onClose, onApprove, onReject }) {
+  const { t } = useTranslation();
+  if (!service) return null;
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={styles.modalScreen}>
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          <ModalHeader title="Service review" onClose={onClose} />
+          <Detail label={t('admin.name')} value={service.title || service.name} />
+          <Detail label={t('admin.type')} value={service.category || service.serviceType} />
+          <Detail label={t('admin.status')} value={service.approvalStatus || service.status} />
+          <Detail label={t('admin.location')} value={[service.serviceLocation?.city, service.serviceLocation?.country, service.generalLocation].filter(Boolean).join(', ')} />
+          <Detail label={t('admin.descriptionLabel')} value={service.description} />
+          <Text style={styles.cardText}>Approve or reject this service at the bottom of the detail screen.</Text>
+          <View style={styles.actionRow}>
+            <SmallButton label={t('actions.approve')} tone="success" onPress={onApprove} />
+            <SmallButton label={t('actions.reject')} tone="danger" onPress={onReject} />
+          </View>
+          {saving ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
         </ScrollView>
       </View>
     </Modal>
@@ -920,7 +1372,7 @@ function Detail({ label: detailLabel, value }) {
 
 const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 14, paddingTop: 18, paddingBottom: 18 },
+  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
   header: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
   brandIcon: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
   brandIconText: { color: colors.white, fontSize: 18, fontWeight: '900' },
@@ -928,18 +1380,23 @@ const createStyles = (colors) => StyleSheet.create({
   title: { color: colors.text, fontSize: 25, fontWeight: '900', marginTop: 4 },
   text: { color: colors.muted, fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 5 },
   refreshButton: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 14 },
-  metricCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, flexGrow: 1, minWidth: '47%', padding: 12 },
-  metricLabel: { color: colors.muted, fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
-  metricValue: { color: colors.primary, fontSize: 17, fontWeight: '900', marginTop: 5 },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8, marginBottom: 4 },
+  metricCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexGrow: 1, minWidth: '47%', padding: 16 },
+  metricLabel: { color: colors.muted, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  metricValue: { color: colors.primary, fontSize: 20, fontWeight: '900', marginTop: 8 },
   tabs: { gap: 8, paddingVertical: 14 },
   tabButton: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
   tabButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.text, fontSize: 12, fontWeight: '900' },
   tabTextActive: { color: colors.white },
-  section: { paddingTop: 10 },
-  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '900', marginBottom: 10 },
+  section: { paddingTop: 14 },
+  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '900', marginBottom: 12 },
   insightSubTitle: { color: colors.textStrong, fontSize: 14, fontWeight: '900', marginTop: 18, marginBottom: 4 },
+  insightActions: { marginBottom: 14 },
+  createForm: { marginBottom: 18, paddingBottom: 6 },
+  userTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  statusNote: { color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 8 },
+  statusNoteDanger: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 8 },
   card: { backgroundColor: colors.surface, borderRadius: 8, marginBottom: 10, padding: 12 },
   cardTitle: { color: colors.text, fontSize: 14, fontWeight: '900' },
   cardMeta: { color: colors.primaryDark, fontSize: 12, fontWeight: '800', marginTop: 3 },
@@ -948,7 +1405,7 @@ const createStyles = (colors) => StyleSheet.create({
   badgeText: { color: colors.primaryDark, fontSize: 10, fontWeight: '900' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   smallButton: { alignItems: 'center', borderRadius: 8, minHeight: 36, justifyContent: 'center', paddingHorizontal: 11, paddingVertical: 8 },
-  primaryButton: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 8, minHeight: 44, justifyContent: 'center', marginTop: 12 },
+  primaryButton: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 12, minHeight: 46, justifyContent: 'center', marginTop: 16 },
   primaryButtonText: { color: colors.white, fontSize: 13, fontWeight: '900' },
   primarySmallButton: { backgroundColor: colors.primary },
   successSmallButton: { backgroundColor: colors.successSurface },
@@ -973,6 +1430,46 @@ const createStyles = (colors) => StyleSheet.create({
   modeActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   modeText: { color: colors.text, fontSize: 12, fontWeight: '900' },
   modeTextActive: { color: colors.white },
+  modeTrack: { backgroundColor: colors.surfaceMuted, borderRadius: 10, flexDirection: 'row', padding: 4 },
+  modeChip: { alignItems: 'center', borderRadius: 8, flex: 1, minHeight: 36, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 8 },
+  modeChipActive: { backgroundColor: colors.primary },
+  modeChipText: { color: colors.muted, fontSize: 12, fontWeight: '900' },
+  serviceCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, marginBottom: 12, overflow: 'hidden', padding: 12 },
+  serviceTop: { flexDirection: 'row', gap: 12 },
+  serviceThumb: { backgroundColor: colors.surfaceMuted, borderRadius: 12, height: 84, width: 84 },
+  serviceThumbFallback: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: 12, height: 84, justifyContent: 'center', width: 84 },
+  serviceBody: { flex: 1, minWidth: 0 },
+  serviceTitleRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
+  serviceTitle: { color: colors.text, flex: 1, fontSize: 16, fontWeight: '900' },
+  serviceCategory: { color: colors.muted, fontSize: 12, fontWeight: '800', marginTop: 4, textTransform: 'capitalize' },
+  serviceProvider: { color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 3 },
+  serviceLocation: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  serviceMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  remainingChip: { alignItems: 'center', backgroundColor: colors.surfaceMuted, borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 5 },
+  remainingChipText: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  statusPill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  statusPillsuccess: { backgroundColor: colors.successSurface },
+  statusPillwarning: { backgroundColor: colors.warningSurface },
+  statusPilldanger: { backgroundColor: colors.dangerSurface },
+  statusPillText: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+  statusPillTextsuccess: { color: colors.success },
+  statusPillTextwarning: { color: colors.warning },
+  statusPillTextdanger: { color: colors.danger },
+  serviceModeBlock: { borderTopColor: colors.border, borderTopWidth: 1, marginTop: 12, paddingTop: 12 },
+  serviceModeLabel: { color: colors.muted, fontSize: 10, fontWeight: '900', marginBottom: 8, textTransform: 'uppercase' },
+  reviewButton: { alignItems: 'center', backgroundColor: colors.primaryLight, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', marginTop: 10, minHeight: 42, paddingHorizontal: 12 },
+  reviewButtonText: { color: colors.primaryDark, fontSize: 13, fontWeight: '900' },
+  reviewCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, marginBottom: 12, padding: 14 },
+  reviewTitleRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
+  reviewTitle: { color: colors.text, flex: 1, fontSize: 16, fontWeight: '900' },
+  reviewMeta: { color: colors.muted, fontSize: 12, fontWeight: '800', marginTop: 6, textTransform: 'capitalize' },
+  reviewLocation: { color: colors.text, fontSize: 12, fontWeight: '700', lineHeight: 18, marginTop: 4 },
+  reviewText: { color: colors.muted, fontSize: 12, fontWeight: '700', lineHeight: 18, marginTop: 6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  actionChip: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 6, minHeight: 38, paddingHorizontal: 12, paddingVertical: 8 },
+  actionChipText: { fontSize: 12, fontWeight: '900' },
+  userCard: { alignItems: 'flex-start', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 12, padding: 14 },
+  userCheck: { paddingTop: 2 },
   noticeBox: { backgroundColor: colors.primaryLight, borderRadius: 8, marginTop: 12, padding: 12 },
   settingsGroupTitle: { color: colors.text, fontSize: 13, fontWeight: '900', marginTop: 14, marginBottom: 8 },
   settingsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

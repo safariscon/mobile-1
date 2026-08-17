@@ -4,13 +4,17 @@ import Feather from '@expo/vector-icons/Feather';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import { DateTimeField, MultilineField, NumberField, SelectField as ModalSelectField, TextField } from '../components/FormFields';
+import { useAppDialog } from '../components/AppDialog';
+import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import ServiceLocationPicker from '../components/ServiceLocationPicker';
+import WorldLocationFields from '../components/WorldLocationFields';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
-import { RWANDA_DISTRICTS, RWANDA_PROVINCES, SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
+import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
+import { isDraftListing, matchesServiceFilter } from '../lib/listings';
 
 let colors = lightColors;
 let styles;
@@ -66,8 +70,8 @@ const emptyBusinessForm = {
   title: '',
   category: 'hotel-rooms',
   description: '',
-  serviceLocation: { country: 'Rwanda', province: '', district: '', sector: '', cell: '', village: '', fullAddress: '', latitude: '', longitude: '', locationSource: 'map_click', isExactLocationVerified: false },
-  locationDetails: { province: '', district: '', sector: '', cell: '', village: '' },
+  serviceLocation: { country: '', countryCode: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', fullAddress: '', latitude: '', longitude: '', locationSource: 'map_click', isExactLocationVerified: false },
+  locationDetails: { country: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '' },
   payoutDetails: { method: 'mobile-money', accountName: '', accountNumber: '', instructions: '' },
   contactDetails: { phone: '', whatsapp: '' },
   status: 'available',
@@ -159,11 +163,11 @@ function normalizePromotionDate(value, endOfDay = false) {
 function validateBusinessForm(form, t) {
   if (!form.title.trim()) return t('seller.validation.businessNameRequired');
   if (!form.category.trim()) return t('seller.validation.categoryRequired');
-  if (!form.serviceLocation.province.trim() || !form.serviceLocation.district.trim() || !form.serviceLocation.sector.trim()) {
-    return t('seller.validation.locationRequired');
+  if (!form.serviceLocation.country.trim() || !(form.serviceLocation.city || form.serviceLocation.district || '').trim()) {
+    return 'Country and city are required.';
   }
-  if (form.status === 'available' && !String(form.serviceLocation.fullAddress || '').trim() && (!form.serviceLocation.latitude || !form.serviceLocation.longitude)) {
-    return 'Exact location or map coordinates are required before a service can be available.';
+  if (form.status === 'available' && (!form.serviceLocation.latitude || !form.serviceLocation.longitude)) {
+    return 'Exact map coordinates are required before a service can be available.';
   }
   if (!form.payoutDetails.accountName.trim() || !form.payoutDetails.accountNumber.trim()) {
     return t('seller.validation.payoutRequired');
@@ -193,8 +197,12 @@ function formFromBusiness(business, t) {
     serviceLocation: {
       ...emptyBusinessForm.serviceLocation,
       ...sourceLocation,
-      province: sourceLocation.province || legacyLocation.province || '',
-      district: sourceLocation.district || legacyLocation.district || '',
+      country: sourceLocation.country || '',
+      countryCode: sourceLocation.countryCode || '',
+      state: sourceLocation.state || sourceLocation.province || legacyLocation.state || legacyLocation.province || '',
+      city: sourceLocation.city || sourceLocation.district || legacyLocation.city || legacyLocation.district || '',
+      province: sourceLocation.province || sourceLocation.state || legacyLocation.province || '',
+      district: sourceLocation.district || sourceLocation.city || legacyLocation.district || '',
       sector: sourceLocation.sector || legacyLocation.sector || '',
       cell: sourceLocation.cell || legacyLocation.cell || '',
       village: sourceLocation.village || legacyLocation.village || '',
@@ -234,7 +242,7 @@ function formFromBusiness(business, t) {
   };
 }
 
-export default function SellerDashboard({ tab }) {
+export default function SellerDashboard({ tab, section = 'bookings', hideChrome = false, focusBookingId }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -261,8 +269,9 @@ export default function SellerDashboard({ tab }) {
   const [rebookRequests, setRebookRequests] = useState([]);
   const [savingBusiness, setSavingBusiness] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
-  const [catalogInfo, setCatalogInfo] = useState('');
   const [editorError, setEditorError] = useState('');
+  const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
+  const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
 
   const loadData = useCallback(async (silent = false) => {
     if (!isAuthenticated) return;
@@ -270,7 +279,7 @@ export default function SellerDashboard({ tab }) {
     setError('');
 
     try {
-      if (tab === 'bookings') {
+      if (tab === 'bookings' || tab === 'analytics') {
         const response = await apiFetch('/hotel/bookings?page=1&limit=20', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -279,23 +288,24 @@ export default function SellerDashboard({ tab }) {
           const list = Array.isArray(resData) ? resData : resData.bookings || resData.items || [];
           setData(list);
 
-          // Calculate overview metrics locally for the dashboard
           const completedBookings = list.filter(b => b.paymentStatus === 'completed' || b.status === 'completed');
           const revenue = completedBookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
-          setStats({
+          setStats((current) => ({
+            ...current,
             totalBookings: list.length,
             totalRevenue: revenue,
             activeBookings: list.filter(b => b.status === 'pending' || b.status === 'confirmed').length
-          });
-        } else {
+          }));
+        } else if (tab === 'bookings') {
           throw new Error(t('backend.sellerBookingsFailed'));
         }
-      } else if (tab === 'rebook') {
+      }
+      if (tab === 'bookings' && (section === 'rebook' || !section)) {
         const response = await apiFetch('/rebook/seller?page=1', { headers: { 'Authorization': `Bearer ${token}` } });
         const resData = await response.json();
-        if (!response.ok) throw new Error(t('customerBookings.loadFailed'));
-        setRebookRequests(resData.requests || []);
-      } else if (tab === 'catalog') {
+        if (response.ok) setRebookRequests(resData.requests || []);
+      }
+      if (tab === 'catalog' || tab === 'analytics' || tab === 'finance') {
         const [overviewResponse, servicesResponse] = await Promise.all([
           apiFetch('/hotel/overview', { headers: { 'Authorization': `Bearer ${token}` } }),
           apiFetch('/hotel/services?page=1&limit=20', { headers: { 'Authorization': `Bearer ${token}` } }),
@@ -304,39 +314,38 @@ export default function SellerDashboard({ tab }) {
         const servicesData = await servicesResponse.json();
         if (!overviewResponse.ok) throw new Error(t('backend.sellerOverviewFailed'));
         if (!servicesResponse.ok) throw new Error(t('backend.sellerBusinessesFailed'));
-        const services = Array.isArray(servicesData) ? servicesData : servicesData.services || servicesData.items || [];
-        const businesses = Array.isArray(overviewData.businesses)
+        const services = (Array.isArray(servicesData) ? servicesData : servicesData.services || servicesData.items || []).filter((item) => !isDraftListing(item));
+        const businesses = (Array.isArray(overviewData.businesses)
           ? overviewData.businesses
-          : services.filter(isEditableBusinessListing);
+          : services.filter(isEditableBusinessListing)).filter((item) => !isDraftListing(item));
         setOverview(overviewData);
-        setData(businesses);
-        setStats({
-          totalBookings: overviewData.stats?.bookings || 0,
-          totalRevenue: overviewData.stats?.earnings || 0,
-          activeBookings: 0,
+        if (tab !== 'bookings') setData(businesses);
+        setStats((current) => ({
+          ...current,
+          totalBookings: overviewData.stats?.bookings || current.totalBookings || 0,
+          totalRevenue: overviewData.stats?.earnings || current.totalRevenue || 0,
           businesses: businesses.length,
           activeBusinesses: businesses.filter((item) => item.status === 'available').length,
           listings: overviewData.stats?.services || services.length,
-        });
+        }));
       }
     } catch (err) {
-      setError(t('customerBookings.loadFailed'));
+      showResult(t('common.error'), t('customerBookings.loadFailed'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAuthenticated, t, tab, token]);
+  }, [isAuthenticated, section, showResult, t, tab, token]);
 
   useEffect(() => {
     loadData();
-    // Reset verification states on tab switch
-    if (tab !== 'verify') {
+    if (section !== 'verify') {
       setVerificationCode('');
       setVerifiedBooking(null);
       setVerifyError('');
       setVerifySuccess('');
     }
-  }, [tab, loadData]);
+  }, [tab, section, loadData]);
 
   const realtimeRooms = useMemo(() => realtimeUserRooms(user, { business: true }), [user]);
   const refreshFromRealtime = useCallback(() => {
@@ -373,7 +382,7 @@ export default function SellerDashboard({ tab }) {
 
       loadData(true);
     } catch (err) {
-      Alert.alert(t('backend.actionFailed'), t('backend.statusUpdateFailed'));
+      showResult(t('common.error'), t('backend.statusUpdateFailed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -402,9 +411,9 @@ export default function SellerDashboard({ tab }) {
       }
 
       setVerifiedBooking(resData.booking || resData);
-      setVerifySuccess(t('seller.verifyValid'));
+      showResult(t('common.success'), t('seller.verifyValid'));
     } catch (err) {
-      setVerifyError(t('backend.invalidCode'));
+      showResult(t('common.error'), t('backend.invalidCode'), 'error');
     } finally {
       setVerifyLoading(false);
     }
@@ -435,11 +444,11 @@ export default function SellerDashboard({ tab }) {
         throw new Error(t('backend.checkInFailed'));
       }
 
-      setVerifySuccess(t('seller.checkInDone'));
+      showResult(t('common.success'), t('seller.checkInDone'));
       setVerifiedBooking(null);
       setVerificationCode('');
     } catch (err) {
-      setVerifyError(t('backend.checkInFailed'));
+      showResult(t('common.error'), t('backend.checkInFailed'), 'error');
     } finally {
       setVerifyLoading(false);
     }
@@ -452,9 +461,10 @@ export default function SellerDashboard({ tab }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(t('backend.actionFailed'));
+      showResult(t('common.success'), 'Request updated.');
       loadData(true);
     } catch {
-      Alert.alert(t('backend.actionFailed'), t('customerBookings.loadFailed'));
+      showResult(t('common.error'), t('customerBookings.loadFailed'), 'error');
     }
   };
 
@@ -462,7 +472,6 @@ export default function SellerDashboard({ tab }) {
     setEditingBusiness(business);
     setBusinessForm(formFromBusiness(business, t));
     setBusinessEditorOpen(true);
-    setCatalogInfo('');
     setError('');
     setEditorError('');
   };
@@ -622,8 +631,11 @@ export default function SellerDashboard({ tab }) {
     const availabilityText = formToSave.status === 'custom' ? formToSave.customAvailability : formToSave.remainingQuantity;
     const quantityMatch = String(formToSave.remainingQuantity || formToSave.customAvailability || '').replace(/,/g, '').match(/\d+(\.\d+)?/);
     const locationDetails = {
-      province: formToSave.serviceLocation.province,
-      district: formToSave.serviceLocation.district,
+      country: formToSave.serviceLocation.country,
+      state: formToSave.serviceLocation.state || formToSave.serviceLocation.province,
+      city: formToSave.serviceLocation.city || formToSave.serviceLocation.district,
+      province: formToSave.serviceLocation.state || formToSave.serviceLocation.province,
+      district: formToSave.serviceLocation.city || formToSave.serviceLocation.district,
       sector: formToSave.serviceLocation.sector,
       cell: formToSave.serviceLocation.cell,
       village: formToSave.serviceLocation.village,
@@ -677,10 +689,9 @@ export default function SellerDashboard({ tab }) {
     setSavingBusiness(true);
     setError('');
     setEditorError('');
-    setCatalogInfo('');
     try {
       const resData = await saveBusinessPayload(businessForm);
-      setCatalogInfo(t('backend.businessSaved'));
+      showResult(t('common.success'), t('backend.businessSaved'));
       setEditingBusiness(null);
       setBusinessEditorOpen(false);
       await loadData(true);
@@ -691,46 +702,53 @@ export default function SellerDashboard({ tab }) {
     }
   };
 
-  const deleteBusiness = async (business) => {
-    setLoading(true);
-    setError('');
-    setCatalogInfo('');
-    try {
-      const response = await apiFetch(`/hotel/services/${business._id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const resData = await readApiJson(response);
-      if (!response.ok) throw new Error(resData.message || resData.error || t('backend.deleteBusinessFailed'));
-      setCatalogInfo(t('backend.businessDeleted'));
-      await loadData(true);
-    } catch (err) {
-      setError(getSaveErrorMessage(err, t('backend.deleteBusinessFailed')));
-    } finally {
-      setLoading(false);
-    }
+  const deleteBusiness = (business) => {
+    askConfirm({
+      title: 'Delete this service?',
+      message: 'This listing will be removed from your catalog.',
+      confirmLabel: t('actions.delete'),
+      destructive: true,
+      onConfirm: async () => {
+        closeDialog();
+        setLoading(true);
+        setError('');
+        try {
+          const response = await apiFetch(`/hotel/services/${business._id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const resData = await readApiJson(response);
+          if (!response.ok) throw new Error(resData.message || resData.error || t('backend.deleteBusinessFailed'));
+          showResult(t('common.success'), t('backend.businessDeleted'));
+          await loadData(true);
+        } catch (err) {
+          showResult(t('common.error'), getSaveErrorMessage(err, t('backend.deleteBusinessFailed')), 'error');
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   const setBusinessAvailability = async (business, status) => {
     setLoading(true);
     setError('');
-    setCatalogInfo('');
     try {
       const serviceLocation = formFromBusiness(business, t).serviceLocation;
-      const hasLocation = serviceLocation.province && serviceLocation.district && serviceLocation.sector && serviceLocation.latitude && serviceLocation.longitude;
+      const hasLocation = (serviceLocation.country && (serviceLocation.city || serviceLocation.district)) && serviceLocation.latitude && serviceLocation.longitude;
       const hasPayout = business.payoutDetails?.accountName && business.payoutDetails?.accountNumber;
       const hasPriceRows = business.availabilityTable?.rows?.some((row) => row.cells?.service && row.cells?.price);
       if (!hasLocation || !hasPayout || !hasPriceRows) {
         beginEditBusiness(business);
-        setCatalogInfo(t('seller.completeBeforeAvailability'));
+        showResult(t('common.error'), t('seller.completeBeforeAvailability'), 'error');
         return;
       }
       const nextForm = { ...formFromBusiness(business, t), status, remainingQuantity: status === 'available' ? String(business.availableQuantity || 1) : '0' };
-      const resData = await saveBusinessPayload(nextForm, business);
-      setCatalogInfo(t('backend.businessUpdated'));
+      await saveBusinessPayload(nextForm, business);
+      showResult(t('common.success'), t('backend.businessUpdated'));
       await loadData(true);
     } catch (err) {
-      setError(getSaveErrorMessage(err, t('backend.availabilityFailed')));
+      showResult(t('common.error'), getSaveErrorMessage(err, t('backend.availabilityFailed')), 'error');
       beginEditBusiness(business);
     } finally {
       setLoading(false);
@@ -742,8 +760,12 @@ export default function SellerDashboard({ tab }) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
       contentContainerStyle={styles.scrollContent}
     >
-      <Text style={styles.eyebrow}>{t('seller.workspace')}</Text>
-      <Text style={styles.title}>{t('seller.bookingRequests')}</Text>
+      {hideChrome ? null : (
+        <>
+          <Text style={styles.eyebrow}>{t('seller.workspace')}</Text>
+          <Text style={styles.title}>{t('seller.bookingRequests')}</Text>
+        </>
+      )}
       
       {/* Stats summary banner */}
       <View style={styles.statsRow}>
@@ -756,8 +778,6 @@ export default function SellerDashboard({ tab }) {
           <Text style={styles.statsNumber}>{stats.totalRevenue.toLocaleString()}</Text>
         </View>
       </View>
-
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
       
       {loading && !refreshing && <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} />}
       
@@ -841,9 +861,6 @@ export default function SellerDashboard({ tab }) {
             {verifyLoading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.verifyBtnText}>{t('actions.verify')}</Text>}
           </TouchableOpacity>
         </View>
-
-        {!!verifyError && <Text style={styles.verifyError}>{verifyError}</Text>}
-        {!!verifySuccess && <Text style={styles.verifySuccess}>{verifySuccess}</Text>}
       </View>
 
       {verifiedBooking && (
@@ -937,10 +954,12 @@ export default function SellerDashboard({ tab }) {
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.dashboardHeader}>
+          {hideChrome ? null : (
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{t('seller.businessDashboard')}</Text>
             <Text style={styles.text}>{t('seller.businessHelp')}</Text>
           </View>
+          )}
           <TouchableOpacity style={styles.smallPrimaryButton} onPress={() => beginEditBusiness(null)} activeOpacity={0.84}>
             <Text style={styles.smallPrimaryText}>{t('actions.addBusiness')}</Text>
           </TouchableOpacity>
@@ -954,8 +973,6 @@ export default function SellerDashboard({ tab }) {
           <MetricCard label={t('seller.listings')} value={stats.listings} />
         </View>
 
-        {catalogInfo ? <Text style={styles.infoText}>{catalogInfo}</Text> : null}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {loading && !refreshing ? <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} /> : null}
 
         <View style={styles.businessPanel}>
@@ -966,7 +983,7 @@ export default function SellerDashboard({ tab }) {
             </View>
           ) : null}
 
-          {data.map((item) => (
+          {data.filter((item) => matchesServiceFilter(item, section || 'all')).map((item) => (
             <View key={item._id} style={styles.businessCard}>
               <View style={styles.businessTop}>
                 <View style={{ flex: 1 }}>
@@ -976,11 +993,25 @@ export default function SellerDashboard({ tab }) {
                 <View style={styles.remainingPill}>
                   <Text style={styles.remainingText}>{t('seller.remaining', { count: item.availableQuantity ?? item.quantityRemaining ?? 0 })}</Text>
                 </View>
+                <MenuTrigger onPress={() => setOverflow({
+                  visible: true,
+                  title: item.name || item.title || t('seller.service'),
+                  items: [
+                    { key: 'edit', icon: 'edit-2', label: t('actions.edit'), onPress: () => beginEditBusiness(item) },
+                    {
+                      key: 'availability',
+                      icon: item.status === 'unavailable' ? 'check-circle' : 'slash',
+                      label: item.status === 'unavailable' ? t('actions.setAvailable') : t('actions.setUnavailable'),
+                      onPress: () => setBusinessAvailability(item, item.status === 'unavailable' ? 'available' : 'unavailable'),
+                    },
+                    { key: 'delete', icon: 'trash-2', label: t('actions.delete'), destructive: true, onPress: () => deleteBusiness(item) },
+                  ],
+                })} />
               </View>
               <Text style={styles.itemDescription}>{item.description || t('seller.noDescription')}</Text>
               <Text style={styles.managedText}>{t('seller.priceManaged')}</Text>
-              {item.imageReviewStatus === 'pending_image_review' ? <Text style={styles.infoText}>New images are waiting for admin review. Approved images remain public.</Text> : null}
-              {item.imageReviewStatus === 'rejected' ? <Text style={styles.errorText}>New images were rejected. Approved images remain public.</Text> : null}
+              {item.imageReviewStatus === 'pending_image_review' ? <Text style={styles.statusNote}>New images are waiting for admin review. Approved images remain public.</Text> : null}
+              {item.imageReviewStatus === 'rejected' ? <Text style={styles.statusNoteDanger}>New images were rejected. Approved images remain public.</Text> : null}
               {Array.isArray(item.images) && item.images.length ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.businessImages}>
                   {item.images.slice(0, 3).map((image, index) => (
@@ -989,17 +1020,6 @@ export default function SellerDashboard({ tab }) {
                 </ScrollView>
               ) : null}
               <Text style={styles.tableSummary}>{t('seller.tableSummary', { rows: item.availabilityTable?.rows?.length || 0, columns: item.availabilityTable?.columns?.length || DEFAULT_COLUMNS.length })}</Text>
-              <View style={styles.businessActions}>
-                <TouchableOpacity style={styles.outlineButton} onPress={() => beginEditBusiness(item)} activeOpacity={0.84}>
-                  <Text style={styles.outlineButtonText}>{t('actions.edit')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.outlineButton} onPress={() => setBusinessAvailability(item, item.status === 'unavailable' ? 'available' : 'unavailable')} activeOpacity={0.84}>
-                  <Text style={styles.outlineButtonText}>{item.status === 'unavailable' ? t('actions.setAvailable') : t('actions.setUnavailable')}</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity style={styles.deleteButton} onPress={() => deleteBusiness(item)} activeOpacity={0.84}>
-                <Text style={styles.deleteButtonText}>{t('actions.delete')}</Text>
-              </TouchableOpacity>
             </View>
           ))}
         </View>
@@ -1031,12 +1051,63 @@ export default function SellerDashboard({ tab }) {
     </View>
   );
 
+  const payout = overview?.payoutDetails || overview?.businesses?.[0]?.payoutDetails || data[0]?.payoutDetails || {};
+  const held = overview?.stats?.heldPayout || overview?.stats?.held || 0;
+  const failed = overview?.stats?.failedPayout || 0;
+
+  const renderAnalytics = () => (
+    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.statsGrid}>
+        <MetricCard label="Services" value={stats.listings || stats.businesses || 0} />
+        <MetricCard label="Earnings" value={`RWF ${Number(stats.totalRevenue || 0).toLocaleString()}`} />
+        <MetricCard label="Held payout" value={`RWF ${Number(held).toLocaleString()}`} />
+        <MetricCard label="Bookings" value={stats.totalBookings || 0} />
+        <MetricCard label="Active bookings" value={stats.activeBookings || 0} />
+        <MetricCard label="Pending services" value={data.filter((item) => String(item.approvalStatus || item.status || '').includes('pending')).length} />
+        <MetricCard label="Approved services" value={data.filter((item) => ['approved', 'available'].includes(String(item.approvalStatus || item.status || ''))).length} />
+      </View>
+      <TouchableOpacity style={styles.smallPrimaryButton} onPress={onRefresh} activeOpacity={0.84}>
+        <Text style={styles.smallPrimaryText}>Refresh</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderFinance = () => (
+    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} contentContainerStyle={styles.scrollContent}>
+      {(!section || section === 'finance') ? (
+        <View style={styles.statsGrid}>
+          <MetricCard label="Gross collected" value={`RWF ${Number(stats.totalRevenue || 0).toLocaleString()}`} />
+          <MetricCard label="Held payout" value={`RWF ${Number(held).toLocaleString()}`} />
+          <MetricCard label="Failed payout" value={`RWF ${Number(failed).toLocaleString()}`} />
+        </View>
+      ) : (
+        <View style={styles.businessCard}>
+          <Text style={styles.itemTitle}>Payout account</Text>
+          <Text style={styles.itemDescription}>Customers cannot pay until valid MoMo or bank details are saved.</Text>
+          <Text style={styles.tableSummary}>Method: {payout.method || 'Not set'}</Text>
+          <Text style={styles.tableSummary}>Account name: {payout.accountName || 'Not set'}</Text>
+          <Text style={styles.tableSummary}>Account number: {payout.accountNumber || 'Not set'}</Text>
+          <Text style={styles.managedText}>Update these details from Profile → Payment info.</Text>
+        </View>
+      )}
+    </ScrollView>
+  );
+
   return (
     <View style={styles.container}>
-      {tab === 'bookings' && renderBookings()}
-      {tab === 'rebook' && renderRebookRequests()}
-      {tab === 'verify' && renderVerify()}
+      {tab === 'analytics' && renderAnalytics()}
+      {tab === 'bookings' && (!section || section === 'bookings') && renderBookings()}
+      {tab === 'bookings' && section === 'rebook' && renderRebookRequests()}
+      {tab === 'bookings' && section === 'verify' && renderVerify()}
       {tab === 'catalog' && renderCatalog()}
+      {tab === 'finance' && renderFinance()}
+      <OverflowMenu
+        visible={overflow.visible}
+        title={overflow.title}
+        items={overflow.items}
+        onClose={() => setOverflow({ visible: false, title: 'Actions', items: [] })}
+      />
+      {dialogNode}
     </View>
   );
 }
@@ -1081,16 +1152,16 @@ function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingIm
           </Panel>
 
           <Panel title={t('seller.serviceLocation')}>
-            <View style={styles.twoColumns}>
-              <ModalSelectField label={t('customerBookings.province')} value={form.serviceLocation.province} options={RWANDA_PROVINCES.map((province) => [province, province || 'Select province'])} onChange={(value) => onSetNested('serviceLocation', 'province', value)} placeholder="Select province" />
-              <ModalSelectField label={t('customerBookings.district')} value={form.serviceLocation.district} options={[['', 'Select district'], ...RWANDA_DISTRICTS.map((district) => [district, district])]} onChange={(value) => onSetNested('serviceLocation', 'district', value)} placeholder="Select district" />
-            </View>
-            <View style={styles.twoColumns}>
-              <TextField label={t('customerBookings.sector')} value={form.serviceLocation.sector} onChangeText={(text) => onSetNested('serviceLocation', 'sector', text)} />
-              <TextField label={t('seller.cell')} value={form.serviceLocation.cell} onChangeText={(text) => onSetNested('serviceLocation', 'cell', text)} />
-            </View>
-            <TextField label={t('seller.village')} value={form.serviceLocation.village} onChangeText={(text) => onSetNested('serviceLocation', 'village', text)} />
-            <TextField label={t('seller.fullAddress')} value={form.serviceLocation.fullAddress} onChangeText={(text) => onSetNested('serviceLocation', 'fullAddress', text)} placeholder="Kigali, Nyarugenge, Nyamirambo" />
+            <WorldLocationFields
+              value={form.serviceLocation}
+              onChange={(location) => onSet('serviceLocation', {
+                ...form.serviceLocation,
+                ...location,
+                province: location.state || location.province,
+                district: location.city || location.district,
+              })}
+            />
+            <TextField label={t('seller.fullAddress')} value={form.serviceLocation.fullAddress} onChangeText={(text) => onSetNested('serviceLocation', 'fullAddress', text)} placeholder="Street, city, country" />
             <ServiceLocationPicker value={form.serviceLocation} onChange={(nextLocation) => onSet('serviceLocation', nextLocation)} />
             <View style={styles.twoColumns}>
               <NumberField allowDecimal allowNegative label={t('seller.latitude')} value={String(form.serviceLocation.latitude || '')} onChangeText={(text) => onSetNested('serviceLocation', 'latitude', text)} />
@@ -1461,6 +1532,18 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     marginTop: 10,
+  },
+  statusNote: {
+    color: colors.warning,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  statusNoteDanger: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
   },
   businessImages: {
     gap: 8,

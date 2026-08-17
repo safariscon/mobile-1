@@ -3,6 +3,8 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleShe
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import PolicyLinks from '../components/PolicyLinks';
+import { CHECKBOX_COPY } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -11,7 +13,7 @@ let styles;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateToProviderRegistration, onEmailVerificationRequired }) {
+export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateToProviderRegistration, onNavigateToBusinessRegister, onEmailVerificationRequired }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -23,6 +25,7 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -33,6 +36,7 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
     if (!password) return setError(t('auth.register.missingPassword'));
     if (password.length < 6) return setError('Password must be at least 6 characters.');
     if (password !== confirmPassword) return setError(t('auth.register.passwordMismatch'));
+    if (!acceptedTerms) return setError('Accept the Terms of use and Privacy policy to create an account.');
 
     setError('');
     setSuccess('');
@@ -84,6 +88,13 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
           <PasswordInput label={t('common.password')} placeholder="Create a secure password" value={password} onChangeText={setPassword} visible={showPassword} onToggle={() => setShowPassword((current) => !current)} />
           <PasswordInput label={t('auth.register.confirmPassword')} placeholder="Repeat your password" value={confirmPassword} onChangeText={setConfirmPassword} visible={showConfirmPassword} onToggle={() => setShowConfirmPassword((current) => !current)} />
 
+          <TouchableOpacity style={styles.checkbox} onPress={() => setAcceptedTerms((current) => !current)} activeOpacity={0.84}>
+            <View style={[styles.box, acceptedTerms && styles.boxActive]}>
+              {acceptedTerms ? <Feather name="check" size={13} color={colors.white} /> : null}
+            </View>
+            <Text style={styles.checkboxText}>{CHECKBOX_COPY.register}</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading} activeOpacity={0.86}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.createAccount')}</Text>}
           </TouchableOpacity>
@@ -99,6 +110,11 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
             <Feather name="briefcase" size={16} color={colors.primary} />
             <Text style={styles.providerActionText}>Complete provider registration</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
+            <Feather name="plus-square" size={16} color={colors.primary} />
+            <Text style={styles.providerActionText}>Register a business</Text>
+          </TouchableOpacity>
+          <PolicyLinks compact />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -261,6 +277,32 @@ const createStyles = (colors) => StyleSheet.create({
     color: colors.white,
     fontSize: 15,
     fontWeight: '900',
+  },
+  checkbox: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  box: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 22,
+    justifyContent: 'center',
+    width: 22,
+  },
+  boxActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  checkboxText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   footer: {
     alignItems: 'center',

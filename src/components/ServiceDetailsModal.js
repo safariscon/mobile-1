@@ -2,17 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
-import { fetchServiceDetails, submitBookingRequest, verifyRebookId } from '../api/services';
+import { fetchServiceDetails, fetchMarketplaceSettings, resolveBookingMode, submitBookingRequest, verifyRebookId } from '../api/services';
 import { useAuth } from '../context/AuthContext';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { getVisiblePromotion } from '../lib/promotion';
+import { locationToText } from '../lib/geo';
 import { DateField, MultilineField, NumberField, SelectField, TextField, TimeField } from './FormFields';
+import PaymentSheet from './PaymentSheet';
+import WorldLocationFields from './WorldLocationFields';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
 let styles;
-import { RWANDA_DISTRICTS, RWANDA_PROVINCES } from '../data/formOptions';
 
 const fallbackImage = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=900&q=80';
 
@@ -276,11 +278,11 @@ const initialBookingValues = (user) => ({
   numberOfPeople: '1',
   quantity: '1',
   customerLocation: '',
-  customerProvince: '',
-  customerDistrict: '',
+  customerCountry: '',
+  customerCountryCode: '',
+  customerState: '',
+  customerCity: '',
   customerSector: '',
-  customerCell: '',
-  customerVillage: '',
   paymentMethod: 'mobile-money',
   rebookId: '',
   specialRequests: '',
@@ -307,8 +309,19 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
   const [verifiedRebookId, setVerifiedRebookId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [marketplaceSettings, setMarketplaceSettings] = useState({ bookingMode: 'manual', bookingRules: [] });
+  const [payBooking, setPayBooking] = useState(null);
   const selectedOption = options.find((option) => getOptionValue(option) === selectedOptionId) || options[0];
   const locationText = service?.generalLocation || service?.location?.generalLocation || t('common.rwanda');
+  const bookingMode = resolveBookingMode(marketplaceSettings, service);
+
+  useEffect(() => {
+    let active = true;
+    fetchMarketplaceSettings()
+      .then((settings) => { if (active) setMarketplaceSettings(settings); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const updateValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   const updateCustomValue = (key, value) => setCustomValues((current) => ({ ...current, [key]: value }));
@@ -327,10 +340,15 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     }
     if (!values.startTime.trim() || !values.endTime.trim()) return 'Start time and end time are required.';
     if (Math.max(1, Number(values.numberOfPeople) || 0) < 1 || Math.max(1, Number(values.quantity) || 0) < 1) return 'People and quantity must be at least 1.';
-    if (!values.customerProvince || !values.customerDistrict || !values.customerSector.trim() || !values.customerCell.trim() || !values.customerVillage.trim()) return 'Province, district, sector, cell, and village are required.';
+    if (!values.customerCountry || !(values.customerCity || '').trim()) return 'Country and city are required.';
     if (values.rebookId.trim() && verifiedRebookId !== values.rebookId.trim()) return 'Verify the Re-book ID before submitting.';
     if (!values.agreeToTerms) return t('bookingForm.termsError');
-    const missingCustom = customFields.find((field) => field.required && !String(customValues[field.id] || '').trim());
+    const missingCustom = customFields.find((field) => {
+      if (!field.required) return false;
+      const value = customValues[field.id];
+      if (value && typeof value === 'object') return !String(value.fileName || value.value || '').trim();
+      return !String(value || '').trim();
+    });
     if (missingCustom) return t('bookingForm.customRequired', { label: missingCustom.label });
     return '';
   };
@@ -378,19 +396,15 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
       const checkIn = values.bookingDate || null;
       const checkOut = values.endDate || values.bookingDate || null;
       const customerLocationDetails = {
-        province: values.customerProvince,
-        district: values.customerDistrict,
+        country: values.customerCountry,
+        countryCode: values.customerCountryCode,
+        state: values.customerState,
+        province: values.customerState,
+        city: values.customerCity,
+        district: values.customerCity,
         sector: values.customerSector.trim(),
-        cell: values.customerCell.trim(),
-        village: values.customerVillage.trim(),
       };
-      const customerLocationText = [
-        customerLocationDetails.village,
-        customerLocationDetails.cell,
-        customerLocationDetails.sector,
-        customerLocationDetails.district,
-        customerLocationDetails.province,
-      ].filter(Boolean).join(', ');
+      const customerLocationText = values.customerLocation.trim() || locationToText(customerLocationDetails);
 
       const response = await submitBookingRequest({
         hotelId: service.hotelId || service.id,
@@ -440,7 +454,14 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
       });
 
       trackAnalytics(ANALYTICS_EVENTS.BOOKING_SUBMITTED, { serviceId: service.id || service.hotelId, bookingId: response?.booking?._id });
-      setSuccess(response?.booking?.bookingCode ? t('bookingForm.successCode', { code: response.booking.bookingCode }) : t('bookingForm.success'));
+      if (bookingMode === 'automatic' && response?.booking) {
+        setSuccess(response?.booking?.bookingCode ? t('bookingForm.successCode', { code: response.booking.bookingCode }) : t('bookingForm.success'));
+        setPayBooking(response.booking);
+      } else {
+        setSuccess(response?.booking?.bookingCode
+          ? `${t('bookingForm.successCode', { code: response.booking.bookingCode })} Wait for provider review before paying.`
+          : 'Booking request sent. Wait for provider review before paying.');
+      }
     } catch (requestError) {
       setError(t('bookingForm.submitFailed'));
     } finally {
@@ -474,6 +495,10 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
             <Text style={styles.rulesTitle}>{t('bookingForm.rules')}</Text>
             <Text style={styles.rulesText}>{t('bookingForm.ruleDeposit')}</Text>
             <Text style={styles.rulesText}>{t('bookingForm.rulePrivacy')}</Text>
+            <Text style={styles.rulesText}>{bookingMode === 'automatic' ? 'This listing can be paid immediately after submit.' : 'This listing waits for provider review before payment.'}</Text>
+            {(marketplaceSettings.bookingRules || []).filter(Boolean).map((rule) => (
+              <Text key={rule} style={styles.rulesText}>{rule}</Text>
+            ))}
             {!!service?.bookingRules?.cancellationPolicy?.description && (
               <Text style={styles.rulesText}>{service.bookingRules.cancellationPolicy.description}</Text>
             )}
@@ -511,18 +536,24 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           </View>
 
           <View style={styles.customerLocationBox}>
-            <Text style={styles.customerLocationTitle}>Customer location</Text>
-            <Text style={styles.customerLocationHelp}>Province, district, sector, cell, and village are required for this booking.</Text>
+            <WorldLocationFields
+              value={{
+                country: values.customerCountry,
+                countryCode: values.customerCountryCode,
+                state: values.customerState,
+                city: values.customerCity,
+                sector: values.customerSector,
+              }}
+              onChange={(location) => setValues((current) => ({
+                ...current,
+                customerCountry: location.country,
+                customerCountryCode: location.countryCode,
+                customerState: location.state,
+                customerCity: location.city,
+                customerSector: location.sector,
+              }))}
+            />
             <TextField label={`${t('bookingForm.pickup')} (optional)`} value={values.customerLocation} onChangeText={(text) => updateValue('customerLocation', text)} placeholder={t('bookingForm.pickupPlaceholder')} />
-            <View style={styles.twoColumn}>
-              <SelectField label={`${t('customerBookings.province')} *`} value={values.customerProvince} options={RWANDA_PROVINCES.map((province) => [province, province || 'Select province'])} onChange={(value) => updateValue('customerProvince', value)} placeholder="Select province" />
-              <SelectField label={`${t('customerBookings.district')} *`} value={values.customerDistrict} options={[['', 'Select district'], ...RWANDA_DISTRICTS.map((district) => [district, district])]} onChange={(value) => updateValue('customerDistrict', value)} placeholder="Select district" />
-            </View>
-            <View style={styles.twoColumn}>
-              <TextField label={`${t('customerBookings.sector')} *`} value={values.customerSector} onChangeText={(text) => updateValue('customerSector', text)} />
-              <TextField label={t('seller.cell')} value={values.customerCell} onChangeText={(text) => updateValue('customerCell', text)} />
-            </View>
-            <TextField label={t('seller.village')} value={values.customerVillage} onChangeText={(text) => updateValue('customerVillage', text)} />
           </View>
 
           <SelectField
@@ -573,10 +604,19 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           {!!success && <Text style={styles.formSuccess}>{success}</Text>}
 
           <TouchableOpacity style={[styles.requestButton, submitting && styles.disabledButton]} onPress={handleSubmit} disabled={submitting} activeOpacity={0.86}>
-            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.requestButtonText}>{t('actions.submitBooking')}</Text>}
+            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.requestButtonText}>{bookingMode === 'automatic' ? 'Submit and pay now' : t('actions.submitBooking')}</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>
+      <PaymentSheet
+        visible={Boolean(payBooking)}
+        booking={payBooking}
+        onClose={() => setPayBooking(null)}
+        onPaid={() => {
+          setPayBooking(null);
+          setSuccess('Payment received. Provider details unlock on your bookings tab.');
+        }}
+      />
     </View>
   );
 }
@@ -614,6 +654,18 @@ function CustomField({ field, value, onChange }) {
         options={field.options.map((option) => [option, option])}
         onChange={onChange}
         placeholder={field.placeholder || 'Select option'}
+      />
+    );
+  }
+
+  if (field.type === 'file') {
+    const meta = value && typeof value === 'object' ? value : {};
+    return (
+      <TextField
+        label={`${field.label}${field.required ? ' *' : ''}`}
+        value={meta.fileName || ''}
+        onChangeText={(text) => onChange({ fileName: text, size: meta.size || 0, type: meta.type || 'application/octet-stream' })}
+        placeholder={field.placeholder || 'file-name.pdf'}
       />
     );
   }

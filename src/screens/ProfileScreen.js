@@ -1,36 +1,89 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
+import { useAppDialog } from '../components/AppDialog';
+import PolicyLinks from '../components/PolicyLinks';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { apiFetch } from '../config/api';
+import { roleLabel, userInitials } from '../lib/navigation';
 
 export default function ProfileScreen() {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { user, logout, isSeller, forgotPassword, resetPassword, updateProfile, loading } = useAuth();
   const { colors, isDark } = useTheme();
   const styles = createStyles(colors, isDark);
-  const isAdmin = user?.role === 'admin';
-  const displayName = isAdmin ? 'SafarisCon Admin' : user?.name || t('profile.traveler');
-  const displayRole = isAdmin ? 'ADMIN' : user?.role?.toUpperCase() || 'TOURIST';
-  const initials = isAdmin ? 'SA' : user?.name ? user.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() : 'U';
+  const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
+  const displayName = user?.name || t('profile.traveler');
+  const displayRole = roleLabel(user);
+  const initials = userInitials(user);
+  const [name, setName] = useState(user?.name || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [payoutName, setPayoutName] = useState(user?.payoutDetails?.accountName || '');
+  const [payoutNumber, setPayoutNumber] = useState(user?.payoutDetails?.accountNumber || '');
+
+  const saveProfile = async () => {
+    const result = await updateProfile({ name: name.trim(), phone: phone.trim() });
+    if (result.success) showResult(t('common.success'), 'Profile updated.');
+    else showResult(t('common.error'), result.error || 'Could not update profile.', 'error');
+  };
+
+  const sendPasswordOtp = async () => {
+    const result = await forgotPassword(user?.email);
+    if (result.success) showResult(t('common.success'), 'Password reset code sent to your email.');
+    else showResult(t('common.error'), result.error || 'Could not send password code.', 'error');
+  };
+
+  const savePassword = async () => {
+    const result = await resetPassword(user?.email, otp.trim(), newPassword);
+    if (result.success) showResult(t('common.success'), 'Password updated.');
+    else showResult(t('common.error'), result.error || 'Could not update password.', 'error');
+  };
+
+  const savePayout = async () => {
+    try {
+      const response = await apiFetch('/hotel/overview', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payoutDetails: { method: 'momo', accountName: payoutName, accountNumber: payoutNumber, msisdn: payoutNumber } }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Could not save payout details.');
+      showResult(t('common.success'), 'Payout details saved.');
+    } catch (saveError) {
+      showResult(t('common.error'), saveError.message, 'error');
+    }
+  };
+
+  const confirmLogout = () => {
+    askConfirm({
+      title: t('profile.logoutTitle'),
+      message: t('profile.logoutMessage'),
+      confirmLabel: t('common.logout'),
+      destructive: true,
+      onConfirm: () => {
+        closeDialog();
+        logout();
+      },
+    });
+  };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Text style={styles.eyebrow}>{t('profile.eyebrow')}</Text>
       <Text style={styles.title}>{t('profile.title')}</Text>
 
-      {/* User Detail Card */}
       <View style={styles.profileCard}>
         <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>
-            {initials}
-          </Text>
+          <Text style={styles.avatarText}>{initials}</Text>
         </View>
-        
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{displayName}</Text>
           <Text style={styles.userEmail}>{user?.email || 'user@safariscon.com'}</Text>
-          
           <View style={styles.roleBadge}>
             <Feather name="shield" size={13} color={colors.primaryDark} />
             <Text style={styles.roleText}>{displayRole}</Text>
@@ -39,43 +92,55 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Account security</Text>
+        <Text style={styles.sectionTitle}>Profile</Text>
       </View>
+      <TextInput value={name} onChangeText={setName} placeholder="Full name" placeholderTextColor={colors.muted} style={styles.input} />
+      <TextInput value={phone} onChangeText={setPhone} placeholder="Phone" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
+      <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={loading} activeOpacity={0.85}>
+        {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveText}>Save profile</Text>}
+      </TouchableOpacity>
 
-      <View style={styles.optionsList}>
-        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
-          <View style={styles.optionLeft}>
-            <Feather name="shield" size={20} color={colors.muted} />
-            <Text style={styles.optionLabel}>Multi-factor authentication</Text>
-          </View>
-          <View style={styles.statusPill}>
-            <Text style={styles.statusPillText}>Set up</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
-          <View style={styles.optionLeft}>
-            <Feather name="key" size={20} color={colors.muted} />
-            <Text style={styles.optionLabel}>Reset password</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.muted} />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.optionRow} activeOpacity={0.75}>
-          <View style={styles.optionLeft}>
-            <Feather name="smartphone" size={20} color={colors.muted} />
-            <Text style={styles.optionLabel}>Trusted devices</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.muted} />
-        </TouchableOpacity>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Password</Text>
       </View>
+      <Text style={styles.helpText}>Password changes use an email OTP, same as the web app.</Text>
+      <TouchableOpacity style={styles.optionRow} onPress={sendPasswordOtp} activeOpacity={0.75}>
+        <View style={styles.optionLeft}>
+          <Feather name="mail" size={20} color={colors.muted} />
+          <Text style={styles.optionLabel}>Send password OTP</Text>
+        </View>
+      </TouchableOpacity>
+      <TextInput value={otp} onChangeText={setOtp} placeholder="OTP code" placeholderTextColor={colors.muted} keyboardType="number-pad" style={styles.input} />
+      <TextInput value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor={colors.muted} secureTextEntry style={styles.input} />
+      <TouchableOpacity style={styles.saveButton} onPress={savePassword} disabled={loading} activeOpacity={0.85}>
+        <Text style={styles.saveText}>Update password</Text>
+      </TouchableOpacity>
 
-      {/* Logout Action */}
-      <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.85}>
-        <Feather name="log-out" size={20} color="#DC2626" />
-        <Text style={styles.logoutText}>{t('profile.signOut')}</Text>
+      {isSeller ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Payout</Text>
+          </View>
+          <TextInput value={payoutName} onChangeText={setPayoutName} placeholder="Account name" placeholderTextColor={colors.muted} style={styles.input} />
+          <TextInput value={payoutNumber} onChangeText={setPayoutNumber} placeholder="MoMo / account number" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
+          <TouchableOpacity style={styles.saveButton} onPress={savePayout} activeOpacity={0.85}>
+            <Text style={styles.saveText}>Save payout</Text>
+          </TouchableOpacity>
+        </>
+      ) : null}
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Policies</Text>
+      </View>
+      <PolicyLinks />
+
+      <TouchableOpacity style={styles.logoutLink} onPress={confirmLogout} activeOpacity={0.85}>
+        <Feather name="log-out" size={16} color="#DC2626" />
+        <Text style={styles.logoutLinkText}>{t('common.logout')}</Text>
       </TouchableOpacity>
     </ScrollView>
+    {dialogNode}
+    </>
   );
 }
 
@@ -249,21 +314,48 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     color: colors.white,
     fontWeight: '800',
   },
-  logoutButton: {
-    flexDirection: 'row',
+  logoutLink: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: colors.dangerSurface,
-    marginBottom: 20,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 20,
+    marginBottom: 12,
+    paddingVertical: 8,
   },
-  logoutText: {
+  logoutLinkText: {
     color: '#DC2626',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
+  },
+  input: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    height: 48,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+  },
+  saveButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    height: 46,
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  saveText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  helpText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 10,
   },
 });

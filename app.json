@@ -3,6 +3,7 @@
     "name": "safarisconapp",
     "slug": "safarisconapp",
     "version": "1.0.0",
+    "scheme": "safariscon",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -55,7 +56,8 @@
           "recordAudioAndroid": false
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

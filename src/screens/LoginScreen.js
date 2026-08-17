@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleShe
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import PolicyLinks from '../components/PolicyLinks';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -23,14 +24,15 @@ function getLoginErrorDetails(message) {
   }
   return { message: original || 'Login failed.', cause: 'Cause: the backend rejected the sign in request.' };
 }
-export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateToProviderRegistration, onNavigateToForgotPassword, onEmailVerificationRequired }) {
+export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateToProviderRegistration, onNavigateToBusinessRegister, onNavigateToForgotPassword, onEmailVerificationRequired, onLoginOtpRequired, initialEmail = '' }) {
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
   const { t } = useTranslation();
   const { login, loading } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
 
@@ -42,13 +44,17 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
     }
 
     setError(null);
-    const result = await login(normalizedEmail, password);
+    const result = await login(normalizedEmail, password, rememberMe);
     if (!result.success) {
       if (result.status === 403 && result.code === 'EMAIL_NOT_VERIFIED') {
         onEmailVerificationRequired?.(normalizedEmail);
         return;
       }
       setError(getLoginErrorDetails(result.error || t('auth.login.failed')));
+      return;
+    }
+    if (result.otpRequired) {
+      onLoginOtpRequired?.(normalizedEmail);
     }
   };
 
@@ -88,6 +94,13 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             <Text style={styles.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.rememberRow} onPress={() => setRememberMe((current) => !current)} activeOpacity={0.84}>
+            <View style={[styles.rememberBox, rememberMe && styles.rememberBoxActive]}>
+              {rememberMe ? <Feather name="check" size={12} color={colors.white} /> : null}
+            </View>
+            <Text style={styles.rememberText}>Remember me</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.86}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.signIn')}</Text>}
           </TouchableOpacity>
@@ -103,6 +116,11 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             <Feather name="briefcase" size={16} color={colors.primary} />
             <Text style={styles.providerActionText}>Complete provider registration</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
+            <Feather name="plus-square" size={16} color={colors.primary} />
+            <Text style={styles.providerActionText}>Register a business</Text>
+          </TouchableOpacity>
+          <PolicyLinks compact />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -316,6 +334,30 @@ const createStyles = (colors) => StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
+  },
+  rememberRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  rememberBox: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: 5,
+    borderWidth: 1,
+    height: 20,
+    justifyContent: 'center',
+    width: 20,
+  },
+  rememberBoxActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  rememberText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });
 

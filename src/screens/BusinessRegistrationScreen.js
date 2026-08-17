@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { MultilineField, NumberField, SelectField, TextField } from '../components/FormFields';
+import WorldLocationFields from '../components/WorldLocationFields';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { RWANDA_DISTRICTS, RWANDA_PROVINCES, SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
+import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -31,11 +32,11 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
     title: '',
     category: 'hotel-rooms',
     description: '',
-    province: '',
-    district: '',
+    country: '',
+    countryCode: '',
+    state: '',
+    city: '',
     sector: '',
-    cell: '',
-    village: '',
     latitude: '',
     longitude: '',
     payoutName: '',
@@ -50,7 +51,7 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
   const handleSubmit = async () => {
-    if (!form.title || !form.category || !form.province || !form.district || !form.sector || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
+    if (!form.title || !form.category || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
       setError(t('businessRegistration.required'));
       return;
     }
@@ -72,11 +73,13 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
           description: form.description,
           availableQuantity: 1,
           serviceLocation: {
-            province: form.province,
-            district: form.district,
+            country: form.country,
+            countryCode: form.countryCode,
+            state: form.state,
+            province: form.state,
+            city: form.city,
+            district: form.city,
             sector: form.sector,
-            cell: form.cell,
-            village: form.village,
             latitude: form.latitude,
             longitude: form.longitude,
             locationSource: 'admin_manual',
@@ -129,11 +132,17 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
         <TextField label={t('seller.businessName')} value={form.title} onChangeText={(value) => update('title', value)} />
         <SelectField label={t('businessRegistration.businessCategory')} value={form.category} options={SERVICE_CATEGORY_OPTIONS} onChange={(value) => update('category', value)} placeholder="Select category" />
         <MultilineField label={t('businessRegistration.businessDescription')} value={form.description} onChangeText={(value) => update('description', value)} placeholder="Example: We rent clean cars in Kigali with a driver or self-drive option." />
-        <SelectField label={t('customerBookings.province')} value={form.province} options={RWANDA_PROVINCES.map((province) => [province, province || 'Select province'])} onChange={(value) => update('province', value)} placeholder="Select province" />
-        <SelectField label={t('customerBookings.district')} value={form.district} options={[['', 'Select district'], ...RWANDA_DISTRICTS.map((district) => [district, district])]} onChange={(value) => update('district', value)} placeholder="Select district" />
-        <TextField label={t('customerBookings.sector')} value={form.sector} onChangeText={(value) => update('sector', value)} />
-        <TextField label={t('seller.cell')} value={form.cell} onChangeText={(value) => update('cell', value)} />
-        <TextField label={t('seller.village')} value={form.village} onChangeText={(value) => update('village', value)} />
+        <WorldLocationFields
+          value={{ country: form.country, countryCode: form.countryCode, state: form.state, city: form.city, sector: form.sector }}
+          onChange={(location) => setForm((current) => ({
+            ...current,
+            country: location.country,
+            countryCode: location.countryCode,
+            state: location.state,
+            city: location.city,
+            sector: location.sector,
+          }))}
+        />
         <NumberField allowDecimal allowNegative label={t('seller.latitude')} value={form.latitude} onChangeText={(value) => update('latitude', value)} />
         <NumberField allowDecimal allowNegative label={t('seller.longitude')} value={form.longitude} onChangeText={(value) => update('longitude', value)} />
         <TextField label={t('seller.payoutAccountName')} value={form.payoutName} onChangeText={(value) => update('payoutName', value)} />

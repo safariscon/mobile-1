@@ -8,7 +8,6 @@ export default function BottomTabs({ activeTab, onChangeTab, tabs = [] }) {
     <View style={[styles.container, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
       {tabs.map((tab) => {
         const active = activeTab === tab.key;
-        const isCenter = tab.key === 'services' || tab.key === 'seller_catalog' || tab.key === 'admin_home';
         return (
           <TouchableOpacity
             key={tab.key}
@@ -16,24 +15,8 @@ export default function BottomTabs({ activeTab, onChangeTab, tabs = [] }) {
             activeOpacity={0.8}
             onPress={() => onChangeTab(tab.key)}
           >
-            {isCenter ? (
-              <View
-                style={[
-                  styles.centerAction,
-                  {
-                    backgroundColor: active ? colors.primaryDark : colors.primary,
-                    shadowColor: colors.primary,
-                  },
-                ]}
-              >
-                <Feather name={tab.icon} size={23} color="#FFFFFF" />
-              </View>
-            ) : (
-              <>
-                <Feather name={tab.icon} size={22} color={active ? colors.primary : colors.muted} />
-                <Text style={[styles.label, { color: active ? colors.primary : colors.muted }]}>{tab.label}</Text>
-              </>
-            )}
+            <Feather name={tab.icon} size={22} color={active ? colors.primary : colors.muted} />
+            <Text style={[styles.label, { color: active ? colors.primary : colors.muted }]}>{tab.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -53,17 +36,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  centerAction: {
-    alignItems: 'center',
-    borderRadius: 21,
-    height: 42,
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    width: 42,
-    elevation: 7,
   },
   label: {
     fontSize: 9,
