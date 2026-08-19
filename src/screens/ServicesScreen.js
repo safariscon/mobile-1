@@ -8,6 +8,7 @@ import { fetchServices, getCachedServices } from '../api/services';
 import { RWANDA_DISTRICTS } from '../data/formOptions';
 import { getVisiblePromotion } from '../lib/promotion';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -272,7 +273,7 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
         <Feather name="search" size={18} color={colors.muted} />
         <TextInput
           placeholder={t('servicesScreen.search')}
-          placeholderTextColor="#98A2B3"
+          placeholderTextColor={colors.muted}
           value={searchQuery}
           onChangeText={setSearchQuery}
           style={styles.input}
@@ -475,16 +476,14 @@ const createStyles = (colors) => StyleSheet.create({
   },
   searchBox: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 14,
-    borderWidth: 1,
     flexDirection: 'row',
     height: 48,
     paddingHorizontal: 14,
   },
   input: {
-    color: colors.text,
+    ...passwordFieldStyle(colors),
     flex: 1,
     fontSize: 13,
     marginLeft: 9,

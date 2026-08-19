@@ -2,6 +2,7 @@ import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'reac
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -26,7 +27,7 @@ export default function HeroSearch() {
         <Feather name="search" size={21} color={colors.muted} />
         <TextInput
           placeholder={t('legacyComponents.heroSearch')}
-          placeholderTextColor="#98A2B3"
+          placeholderTextColor={colors.muted}
           style={styles.input}
         />
       </View>
@@ -74,16 +75,16 @@ const createStyles = (colors) => StyleSheet.create({
   },
   searchBox: {
     alignItems: 'center',
+    ...baseInputStyle(colors),
+    borderRadius: 17,
     flexDirection: 'row',
     height: 52,
-    borderRadius: 17,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
     marginBottom: 14,
+    paddingHorizontal: 16,
   },
   input: {
+    ...passwordFieldStyle(colors),
     flex: 1,
-    color: colors.text,
     fontSize: 15,
     marginLeft: 10,
   },

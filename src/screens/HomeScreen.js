@@ -10,6 +10,7 @@ import { languages, setAppLanguage } from '../i18n';
 import { getVisiblePromotion } from '../lib/promotion';
 import { useTheme } from '../context/ThemeContext';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -150,7 +151,7 @@ export default function HomeScreen({ onLoginPress, onRegisterPress, onRequireAut
           <Feather name="search" size={18} color={colors.muted} />
           <TextInput
             placeholder={t('home.search')}
-            placeholderTextColor="#98A2B3"
+            placeholderTextColor={colors.muted}
             value={serviceSearch}
             onChangeText={setServiceSearch}
             returnKeyType="search"
@@ -566,10 +567,8 @@ const createStyles = (colors) => StyleSheet.create({
   },
   searchWrap: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 13,
-    borderWidth: 1,
     flexDirection: 'row',
     height: 48,
     marginHorizontal: 8,
@@ -583,7 +582,7 @@ const createStyles = (colors) => StyleSheet.create({
     elevation: 5,
   },
   searchInput: {
-    color: colors.text,
+    ...passwordFieldStyle(colors),
     flex: 1,
     fontSize: 13,
     marginLeft: 8,

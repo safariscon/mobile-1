@@ -15,6 +15,7 @@ import Feather from '@expo/vector-icons/Feather';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useThemedStyles from '../theme/useThemedStyles';
+import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 
 const pad = (value) => String(value).padStart(2, '0');
 
@@ -389,11 +390,9 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 7,
   },
   input: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 8,
     borderWidth: 1,
-    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
     minHeight: 46,
@@ -408,10 +407,8 @@ const createStyles = (colors) => StyleSheet.create({
   },
   pressableField: {
     alignItems: 'center',
-    backgroundColor: colors.input,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 12,
-    borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
     justifyContent: 'space-between',
@@ -419,8 +416,9 @@ const createStyles = (colors) => StyleSheet.create({
     paddingHorizontal: 10,
   },
   pressableFieldSelected: {
-    backgroundColor: colors.input,
+    ...baseInputStyle(colors),
     borderColor: colors.primary,
+    borderRadius: 12,
   },
   fieldLeadIcon: {
     alignItems: 'center',
@@ -504,17 +502,15 @@ const createStyles = (colors) => StyleSheet.create({
   },
   searchBox: {
     alignItems: 'center',
-    backgroundColor: colors.input,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 8,
-    borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
     marginBottom: 10,
     paddingHorizontal: 10,
   },
   searchInput: {
-    color: colors.text,
+    ...passwordFieldStyle(colors),
     flex: 1,
     fontSize: 13,
     fontWeight: '700',

@@ -7,6 +7,7 @@ import PolicyLinks from '../components/PolicyLinks';
 import { useAuth } from '../context/AuthContext';
 import { CHECKBOX_COPY } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -221,11 +222,9 @@ const createStyles = (colors) => StyleSheet.create({
     lineHeight: 16,
   },
   input: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 12,
     borderWidth: 1,
-    color: colors.text,
     fontSize: 15,
     height: 52,
     marginBottom: 12,

@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import PolicyLinks from '../components/PolicyLinks';
 import { CHECKBOX_COPY } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -231,11 +232,9 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 7,
   },
   input: {
-    backgroundColor: colors.input,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 12,
     borderWidth: 1,
-    color: colors.text,
     fontSize: 15,
     height: 52,
     paddingHorizontal: 14,
@@ -248,9 +247,10 @@ const createStyles = (colors) => StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     height: 52,
+    overflow: 'hidden',
   },
   passwordInput: {
-    color: colors.text,
+    ...passwordFieldStyle(colors),
     flex: 1,
     fontSize: 15,
     height: '100%',
@@ -258,6 +258,9 @@ const createStyles = (colors) => StyleSheet.create({
   },
   eyeButton: {
     alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderLeftColor: colors.border,
+    borderLeftWidth: 1,
     height: 52,
     justifyContent: 'center',
     width: 48,

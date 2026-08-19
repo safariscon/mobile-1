@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { lightColors } from '../theme/colors';
+import { baseInputStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
 import { isDraftListing, matchesServiceFilter } from '../lib/listings';
 
@@ -846,7 +847,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         <View style={styles.inputSearchRow}>
           <TextInput
             placeholder={t('seller.verifyPlaceholder')}
-            placeholderTextColor="#98A2B3"
+            placeholderTextColor={colors.muted}
             value={verificationCode}
             onChangeText={setVerificationCode}
             autoCapitalize="characters"
@@ -1352,7 +1353,7 @@ function Field({ label, multiline, style, quickDates, onQuickDate, ...props }) {
       <TextInput
         {...props}
         multiline={multiline}
-        placeholderTextColor="#98A2B3"
+        placeholderTextColor={colors.muted}
         placeholder={quickDates ? t('seller.placeholders.date') : props.placeholder}
         style={[styles.fieldInput, multiline && styles.fieldTextArea]}
       />
@@ -1660,11 +1661,8 @@ const createStyles = (colors) => StyleSheet.create({
     marginBottom: 5,
   },
   fieldInput: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 8,
-    borderWidth: 1,
-    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
     minHeight: 42,
@@ -1940,16 +1938,13 @@ const createStyles = (colors) => StyleSheet.create({
     gap: 10,
   },
   verifyInput: {
-    flex: 1,
-    height: 48,
+    ...baseInputStyle(colors),
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    paddingHorizontal: 16,
-    color: colors.text,
+    flex: 1,
     fontSize: 15,
     fontWeight: '700',
+    height: 48,
+    paddingHorizontal: 16,
   },
   verifyBtn: {
     width: 90,

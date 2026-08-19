@@ -25,6 +25,7 @@ import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 import { isDraftListing, matchesServiceFilter, reviewStatusOf } from '../lib/listings';
+import { baseInputStyle } from '../theme/inputStyles';
 
 let colors = lightColors;
 let styles;
@@ -1224,7 +1225,7 @@ function Field({ label: fieldLabel, multiline, ...props }) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{fieldLabel}</Text>
-      <TextInput placeholderTextColor="#98A2B3" style={[styles.input, multiline && styles.textArea]} multiline={multiline} {...props} />
+      <TextInput placeholderTextColor={colors.muted} style={[styles.input, multiline && styles.textArea]} multiline={multiline} {...props} />
     </View>
   );
 }
@@ -1419,7 +1420,7 @@ const createStyles = (colors) => StyleSheet.create({
   errorText: { backgroundColor: colors.dangerSurface, borderRadius: 8, color: colors.danger, fontSize: 12, fontWeight: '900', marginBottom: 10, padding: 10 },
   fieldWrap: { marginTop: 10 },
   fieldLabel: { color: colors.text, fontSize: 11, fontWeight: '900', marginBottom: 5 },
-  input: { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 8, borderWidth: 1, color: colors.text, fontSize: 13, fontWeight: '700', minHeight: 42, paddingHorizontal: 11, paddingVertical: 9 },
+  input: { ...baseInputStyle(colors), borderRadius: 8, borderWidth: 1, fontSize: 13, fontWeight: '700', minHeight: 42, paddingHorizontal: 11, paddingVertical: 9 },
   textArea: { minHeight: 92, textAlignVertical: 'top' },
   toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 9, marginTop: 10 },
   checkbox: { alignItems: 'center', borderColor: colors.border, borderRadius: 5, borderWidth: 1, height: 22, justifyContent: 'center', width: 22 },

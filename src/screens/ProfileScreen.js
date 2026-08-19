@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { apiFetch } from '../config/api';
 import { roleLabel, userInitials } from '../lib/navigation';
+import { baseInputStyle } from '../theme/inputStyles';
 
 export default function ProfileScreen() {
   const { t } = useTranslation();
@@ -329,11 +330,9 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     fontWeight: '800',
   },
   input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    ...baseInputStyle(colors),
     borderRadius: 12,
     borderWidth: 1,
-    color: colors.text,
     fontSize: 15,
     height: 48,
     marginBottom: 10,

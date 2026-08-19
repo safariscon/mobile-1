@@ -37,7 +37,7 @@ export const darkColors = {
   surface: '#101827',
   surfaceRaised: '#162236',
   surfaceMuted: '#1A2940',
-  input: '#101827',
+  input: '#1A2940',
   tabBar: '#0D1525',
   overlay: 'rgba(0, 0, 0, 0.74)',
   infoSurface: '#10264A',
