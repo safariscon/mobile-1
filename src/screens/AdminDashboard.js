@@ -822,56 +822,69 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
               </Card>
             ))}
 
-            <Text style={styles.settingsGroupTitle}>Add service provider</Text>
             {showProviderForm ? (
-              <View style={styles.createForm}>
+              <View style={styles.providerFormCard}>
+                <Text style={styles.providerFormTitle}>{t('admin.addNewProvider')}</Text>
                 <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
                 <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
                 <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
-                <SmallButton label={t('common.cancel')} onPress={() => {
+                <TouchableOpacity style={styles.cancelTextButton} onPress={() => {
                   setShowProviderForm(false);
                   setProviderForm({ providerName: '', providerEmail: '' });
                   setOnboardingCredentials(null);
-                }} />
+                }} activeOpacity={0.75}>
+                  <Text style={styles.cancelTextButtonLabel}>{t('common.cancel')}</Text>
+                </TouchableOpacity>
+                {onboardingCredentials ? (
+                  <View style={styles.noticeBox}>
+                    <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
+                    <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
+                    <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
+                  </View>
+                ) : null}
               </View>
             ) : (
-              <PrimaryButton label={t('admin.addNewProvider')} onPress={() => setShowProviderForm(true)} />
+              <TouchableOpacity style={styles.addProviderButton} onPress={() => setShowProviderForm(true)} activeOpacity={0.84}>
+                <Feather name="user-plus" size={16} color={colors.white} />
+                <Text style={styles.addProviderButtonText}>{t('admin.addNewProvider')}</Text>
+              </TouchableOpacity>
             )}
-            {onboardingCredentials ? (
-              <View style={styles.noticeBox}>
-                <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
-                <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
-                <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
-              </View>
-            ) : null}
           </Section>
         )}
 
         {activeTab === 'users' && (
           <Section title={t('admin.tabs.users')}>
             {section === 'providers' ? (
-              showProviderForm ? (
-                <View style={styles.createForm}>
-                  <Text style={styles.settingsGroupTitle}>{t('admin.createProviderTitle')}</Text>
-                  <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
-                  <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
-                  <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
-                  <SmallButton label={t('common.cancel')} onPress={() => {
-                    setShowProviderForm(false);
-                    setProviderForm({ providerName: '', providerEmail: '' });
-                    setOnboardingCredentials(null);
-                  }} />
-                  {onboardingCredentials ? (
-                    <View style={styles.noticeBox}>
-                      <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
-                      <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
-                      <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : (
-                <PrimaryButton label={t('admin.addNewProvider')} onPress={() => setShowProviderForm(true)} />
-              )
+              <>
+                {showProviderForm ? (
+                  <View style={styles.providerFormCard}>
+                    <Text style={styles.providerFormTitle}>{t('admin.createProviderTitle')}</Text>
+                    <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
+                    <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
+                    <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+                    <TouchableOpacity style={styles.cancelTextButton} onPress={() => {
+                      setShowProviderForm(false);
+                      setProviderForm({ providerName: '', providerEmail: '' });
+                      setOnboardingCredentials(null);
+                    }} activeOpacity={0.75}>
+                      <Text style={styles.cancelTextButtonLabel}>{t('common.cancel')}</Text>
+                    </TouchableOpacity>
+                    {onboardingCredentials ? (
+                      <View style={styles.noticeBox}>
+                        <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
+                        <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
+                        <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.addProviderButton} onPress={() => setShowProviderForm(true)} activeOpacity={0.84}>
+                    <Feather name="user-plus" size={16} color={colors.white} />
+                    <Text style={styles.addProviderButtonText}>{t('admin.addNewProvider')}</Text>
+                  </TouchableOpacity>
+                )}
+                <Text style={styles.providerListHeading}>{t('admin.tabs.users')}</Text>
+              </>
             ) : null}
             {selectedUserIds.length ? <PrimaryButton label={`Delete selected (${selectedUserIds.length})`} loading={saving} onPress={bulkDeleteUsers} /> : null}
             {visibleUsers.map((account) => {
@@ -1409,6 +1422,53 @@ const createStyles = (colors) => StyleSheet.create({
   insightSubTitle: { color: colors.textStrong, fontSize: 14, fontWeight: '900', marginTop: 18, marginBottom: 4 },
   insightActions: { marginBottom: 14 },
   createForm: { marginBottom: 18, paddingBottom: 6 },
+  providerFormCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 20,
+    padding: 16,
+  },
+  providerFormTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  addProviderButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginBottom: 20,
+    minHeight: 48,
+  },
+  addProviderButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  cancelTextButton: {
+    alignItems: 'center',
+    marginTop: 10,
+    paddingVertical: 6,
+  },
+  cancelTextButtonLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  providerListHeading: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
   userTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   statusNote: { color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 8 },
   statusNoteDanger: { color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 8 },
@@ -1483,7 +1543,7 @@ const createStyles = (colors) => StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   actionChip: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 6, minHeight: 38, paddingHorizontal: 12, paddingVertical: 8 },
   actionChipText: { fontSize: 12, fontWeight: '900' },
-  userCard: { alignItems: 'flex-start', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 12, padding: 14 },
+  userCard: { alignItems: 'flex-start', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, marginBottom: 10, padding: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 2, elevation: 1 },
   userCheck: { paddingTop: 2 },
   noticeBox: { backgroundColor: colors.primaryLight, borderRadius: 8, marginTop: 12, padding: 12 },
   settingsGroupTitle: { color: colors.text, fontSize: 13, fontWeight: '900', marginTop: 14, marginBottom: 8 },
