@@ -3,6 +3,8 @@ import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, Touchabl
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { fetchServiceDetails, fetchMarketplaceSettings, resolveBookingMode, submitBookingRequest, verifyRebookId } from '../api/services';
+import AvailabilityTable from './AvailabilityTable';
+import { collectImages, inventoryStatusLabel } from '../lib/serviceMapper';
 import { useAuth } from '../context/AuthContext';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { getVisiblePromotion } from '../lib/promotion';
@@ -85,16 +87,20 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
   }, [service?.id, visible]);
 
   const displayService = details || service;
-  const images = useMemo(() => {
-    const gallery = asList(displayService?.images);
-    return gallery.length ? gallery : [displayService?.image || fallbackImage];
+  const imageItems = useMemo(() => {
+    const gallery = collectImages(displayService);
+    if (gallery.length) return gallery.slice(0, 3);
+    const fallback = displayService?.image || fallbackImage;
+    return [{ url: fallback, alt: displayService?.name || displayService?.title || 'Service' }];
   }, [displayService]);
+  const images = useMemo(() => imageItems.map((item) => item.url), [imageItems]);
   const activeImage = images[selectedImageIndex] || images[0] || fallbackImage;
   const options = asList(displayService?.options);
   const amenities = asList(displayService?.amenities);
-  const locationText = displayService?.generalLocation || displayService?.location?.generalLocation || service?.generalLocation || t('common.rwanda');
+  const locationText = displayService?.generalLocation || displayService?.location?.generalLocation || displayService?.location?.district || service?.generalLocation || t('common.rwanda');
   const promotion = getVisiblePromotion(displayService?.promotion || service?.promotion);
-  const unavailable = ['unavailable', 'inactive', 'sold-out'].includes(String(displayService?.status || displayService?.availabilityStatus || '').toLowerCase());
+  const inventoryLabel = inventoryStatusLabel(displayService?.inventoryStatus || displayService?.status || displayService?.availabilityStatus);
+  const unavailable = ['unavailable', 'inactive', 'sold-out', 'out-of-stock', 'fully-booked', 'temporarily-unavailable'].includes(String(displayService?.inventoryStatus || displayService?.status || displayService?.availabilityStatus || '').toLowerCase());
 
   useEffect(() => {
     setSelectedImageIndex(0);
@@ -180,17 +186,22 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
             {promotion ? <PromotionDetailsCard promotion={promotion} /> : null}
 
             <View style={styles.infoGrid}>
-              <InfoTile label={t('serviceDetails.category')} value={displayService?.category || t('serviceDetails.service')} icon="grid" />
+              <InfoTile label={t('serviceDetails.category')} value={displayService?.category || displayService?.serviceType || t('serviceDetails.service')} icon="grid" />
               <InfoTile
                 label={t('serviceDetails.seller')}
                 value={formatBoolLabel(displayService?.seller?.verified, t('serviceDetails.verifiedSeller'), t('serviceDetails.pendingVerification'))}
                 icon="shield"
               />
-              <InfoTile label={t('serviceDetails.availability')} value={displayService?.availabilityStatus || displayService?.availability || t('serviceDetails.available')} icon="check-circle" />
-              <InfoTile label={t('serviceDetails.pricing')} value={displayService?.pricingType || t('serviceDetails.standard')} icon="tag" />
+              <InfoTile label={t('serviceDetails.availability')} value={inventoryLabel} icon="check-circle" />
+              <InfoTile label={t('serviceDetails.pricing')} value={displayService?.pricingType || displayService?.priceText || t('serviceDetails.standard')} icon="tag" />
               <InfoTile label={t('serviceDetails.unit')} value={displayService?.durationUnit || t('serviceDetails.use')} icon="clock" />
-              <InfoTile label={t('serviceDetails.capacity')} value={`${displayService?.maximumCapacity || 1}`} icon="users" />
+              <InfoTile label={t('serviceDetails.capacity')} value={`${displayService?.maximumCapacity || displayService?.availableQuantity || 1}`} icon="users" />
             </View>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Availability table</Text>
+            </View>
+            <AvailabilityTable table={displayService?.availabilityTable} emptyText={t('serviceDetails.emptyOptions')} />
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{t('serviceDetails.optionsTitle')}</Text>
@@ -215,6 +226,15 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
                       <Text style={styles.factText}>{option.availabilityStatus || displayService?.availabilityStatus || t('serviceDetails.available')}</Text>
                     </View>
                     {!!option.details && <Text style={styles.optionDetails}>{option.details}</Text>}
+                    {asList(option.pricingRules).map((rule) => (
+                      <Text key={`${option.id}-${rule.key}`} style={styles.optionRule}>{rule.label}: {rule.value}</Text>
+                    ))}
+                    {asList(option.availabilityRules).map((rule) => (
+                      <Text key={`${option.id}-${rule.key}-availability`} style={styles.optionRule}>{rule.label}: {rule.value}</Text>
+                    ))}
+                    {asList(option.extraCells).map((cell) => (
+                      <Text key={`${option.id}-${cell.key}-extra`} style={styles.optionRule}>{cell.label}: {cell.value}</Text>
+                    ))}
                     {asList(option.amenities).length ? (
                       <ChipRow items={asList(option.amenities)} />
                     ) : null}
@@ -250,7 +270,7 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
                 trackAnalytics(ANALYTICS_EVENTS.BOOKING_FORM_OPENED, { serviceId: service.id, pageUrl: `safariscon://booking/${service.id}` });
               }}
             >
-              <Text style={styles.requestButtonText}>{unavailable ? 'Currently unavailable' : t('serviceDetails.requestBooking')}</Text>
+              <Text style={styles.requestButtonText}>{unavailable ? inventoryLabel : t('serviceDetails.requestBooking')}</Text>
               <Feather name="arrow-right" size={18} color={colors.white} />
             </TouchableOpacity>
           </View>
@@ -736,6 +756,7 @@ function ChipRow({ items }) {
     <View style={styles.chipRow}>
       {items.map((item) => (
         <View key={item} style={styles.chip}>
+          <Feather name="check" size={12} color={colors.primary} />
           <Text style={styles.chipText}>{item}</Text>
         </View>
       ))}
@@ -1217,6 +1238,13 @@ const createStyles = (colors) => StyleSheet.create({
     marginTop: 10,
     opacity: 0.78,
   },
+  optionRule: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 16,
+    marginTop: 4,
+  },
   emptyCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -1235,10 +1263,13 @@ const createStyles = (colors) => StyleSheet.create({
     gap: 8,
   },
   chip: {
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },

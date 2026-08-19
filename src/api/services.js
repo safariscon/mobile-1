@@ -1,6 +1,13 @@
 import { apiFetch, endpoints } from '../config/api';
 import i18n from '../i18n';
 import { isDraftListing } from '../lib/listings';
+import {
+  collectImages,
+  findServiceInHotelsPayload,
+  inventoryStatusLabel,
+  normalizeServiceDetail,
+  numberFrom,
+} from '../lib/serviceMapper';
 
 const SERVICES_CACHE_TTL_MS = 60 * 1000;
 const servicesCache = new Map();
@@ -74,17 +81,6 @@ function labelFromSlug(value) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-function numberFrom(...values) {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const parsed = Number(value.replace(/[^0-9.-]/g, ''));
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return 0;
 }
 
 function imageFrom(item) {
@@ -174,87 +170,17 @@ export function normalizeService(item, index = 0) {
   };
 }
 
-function formatLabel(value, fallback = '') {
-  const label = labelFromSlug(String(value || '').replace(/_/g, '-'));
-  return label || fallback;
-}
-
-function formatMoney(value, currency = 'RWF') {
-  const amount = numberFrom(value);
-  return amount > 0 ? `${currency} ${amount.toLocaleString()}` : i18n.t('serviceDetails.contactForPrice');
-}
-
-function normalizeLegacyOption(row, service, index) {
-  const cells = row?.cells || {};
-  const price = numberFrom(cells.price, cells.amount, cells.rate, service.basePrice);
-  const currency = firstValue(cells.currency, 'RWF');
-  const inventory = numberFrom(cells.availability, cells.maximumCapacity, cells.capacity, service.availableQuantity, 1);
-  return {
-    id: String(firstValue(row?.id, `option-${index + 1}`)),
-    name: firstValue(cells.service, cells.name, cells.option, cells.title, service.title, service.name, i18n.t('serviceDetails.serviceOption')),
-    price,
-    priceText: firstValue(cells.priceText, formatMoney(price, currency)),
-    pricingType: formatLabel(firstValue(cells.priceType, cells.pricingType), i18n.t('serviceDetails.standard')),
-    durationUnit: firstValue(cells.durationUnit, cells.unit, 'booking'),
-    duration: firstValue(cells.maximumDuration, cells.duration, cells.nights, cells.hours, ''),
-    maximumCapacity: Math.max(1, inventory),
-    details: firstValue(cells.details, cells.description, service.description, ''),
-    amenities: Array.isArray(cells.amenities)
-      ? cells.amenities.filter(Boolean)
-      : String(cells.amenities || '').split(',').map((value) => value.trim()).filter(Boolean),
-    availabilityStatus: inventory > 0 ? i18n.t('serviceDetails.available') : formatLabel(service.inventoryStatus, i18n.t('serviceDetails.available')),
-  };
-}
-
 function normalizeLegacyServiceDetails(item, index = 0) {
   const summary = normalizeService(item, index);
-  const rows = Array.isArray(item.availabilityTable?.rows) ? item.availabilityTable.rows : [];
-  const options = rows.length
-    ? rows.map((row, rowIndex) => normalizeLegacyOption(row, summary, rowIndex))
-    : [{
-        id: summary.id,
-        name: i18n.t('serviceDetails.serviceOption'),
-        price: summary.priceAmount,
-        priceText: summary.price,
-        pricingType: i18n.t('serviceDetails.standard'),
-        durationUnit: i18n.t('serviceDetails.use'),
-        duration: '',
-        maximumCapacity: Math.max(1, summary.availableInventory),
-        details: summary.description,
-        amenities: [],
-        availabilityStatus: summary.availability,
-      }];
-  const locationDetails = item.locationDetails || item.location || {};
-  const generalLocation = firstValue(
-    item.generalLocation,
-    [locationDetails.sector, locationDetails.district, locationDetails.province].filter(Boolean).join(', '),
-    summary.generalLocation
-  );
-
+  const details = normalizeServiceDetail(item, index);
+  const imageUrls = collectImages(item).map((image) => image.url);
   return {
     ...summary,
-    name: summary.title,
-    images: Array.isArray(item.images) ? item.images.filter(Boolean) : [summary.image].filter(Boolean),
-    location: {
-      province: locationDetails.province || '',
-      district: locationDetails.district || '',
-      sector: locationDetails.sector || '',
-      generalLocation,
-    },
-    generalLocation,
-    seller: {
-      verified: item.approvalStatus === 'approved',
-      status: item.approvalStatus || 'pending',
-    },
-    availabilityStatus: formatLabel(firstValue(item.inventoryStatus, item.status), i18n.t('serviceDetails.available')),
-    pricingType: i18n.t('serviceDetails.standard'),
-    durationUnit: i18n.t('serviceDetails.use'),
-    maximumCapacity: Math.max(1, numberFrom(item.availableQuantity, item.quantityRemaining, summary.availableInventory, 1)),
-    options,
-    amenities: Array.isArray(item.amenities) ? item.amenities.filter(Boolean) : [],
-    bookingMode: item.bookingMode || 'manual',
-    bookingRules: item.bookingRules || {},
-    bookingForm: item.bookingForm || {},
+    ...details,
+    name: details.title,
+    images: imageUrls.length ? imageUrls : [summary.image].filter(Boolean),
+    imageItems: collectImages(item),
+    availabilityStatus: inventoryStatusLabel(firstValue(item.inventoryStatus, item.status)),
   };
 }
 
@@ -319,19 +245,58 @@ export async function fetchServices({ page = 1, limit = 20, signal, force = fals
 }
 
 
-export async function fetchServiceDetails(serviceId) {
+async function fetchPublicServiceFromHotels(serviceId, signal) {
+  const query = new URLSearchParams({ page: '1', limit: '120' }).toString();
+  const response = await apiFetch(`${endpoints.hotels}?${query}`, { signal, timeoutMs: 15000, skipAuth: true });
+  if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
+  const payload = await response.json();
+  const item = findServiceInHotelsPayload(payload, serviceId);
+  if (!item) return null;
+  const details = normalizeServiceDetail(item);
+  legacyServiceDetailsCache.set(String(serviceId), { ...normalizeService(item), ...details });
+  return details;
+}
+
+export async function fetchSellerServiceDetails(serviceId, token) {
+  const response = await apiFetch(`/hotel/services/${encodeURIComponent(serviceId)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    timeoutMs: 15000,
+  });
+  if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
+  const payload = await response.json();
+  const item = payload?.service || payload;
+  return normalizeServiceDetail(item);
+}
+
+export async function fetchAdminServiceDetails(serviceId, token) {
+  const response = await apiFetch(`/admin/services/${encodeURIComponent(serviceId)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    timeoutMs: 15000,
+  });
+  if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
+  const payload = await response.json();
+  const item = payload?.service || payload;
+  return normalizeServiceDetail(item);
+}
+
+export async function fetchServiceDetails(serviceId, signal) {
   const cacheKey = String(serviceId);
   const cachedLegacyDetails = legacyServiceDetailsCache.get(cacheKey);
   if (cachedLegacyDetails) return cachedLegacyDetails;
 
-  const response = await apiFetch(endpoints.serviceDetails(serviceId), { timeoutMs: 15000 });
-
+  const response = await apiFetch(endpoints.serviceDetails(serviceId), { signal, timeoutMs: 15000, skipAuth: true });
   if (response.ok) {
     const payload = await response.json();
-    return payload.service || payload;
+    const item = payload?.service || payload;
+    const details = normalizeServiceDetail(item);
+    legacyServiceDetailsCache.set(cacheKey, details);
+    return details;
   }
 
-  await fetchLegacyCatalog({ page: 1, limit: 60 });
+  const hotelsDetails = await fetchPublicServiceFromHotels(serviceId, signal).catch(() => null);
+  if (hotelsDetails) return hotelsDetails;
+
+  await fetchLegacyCatalog({ page: 1, limit: 120, signal });
   const details = legacyServiceDetailsCache.get(cacheKey);
   if (details) return details;
   throw new Error(i18n.t('backend.returned', { status: response.status }));

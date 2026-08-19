@@ -609,6 +609,7 @@
     "providerEmail": "Service provider email",
     "createSeller": "Create service provider",
     "createProviderTitle": "Create service provider",
+    "addNewProvider": "Add new service provider",
     "generatedCredentials": "Generated credentials",
     "sellerId": "Service provider ID",
     "unnamedUser": "Unnamed user",

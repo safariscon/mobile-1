@@ -21,6 +21,8 @@ import { useAppDialog } from '../components/AppDialog';
 import BookingQrScanner from '../components/BookingQrScanner';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import PolicyLinks from '../components/PolicyLinks';
+import ServiceDetailsView from '../components/ServiceDetailsView';
+import { normalizeServiceDetail } from '../lib/serviceMapper';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -144,6 +146,7 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   const [announcementForm, setAnnouncementForm] = useState(DEFAULT_ANNOUNCEMENT);
   const [marketplaceSettings, setMarketplaceSettings] = useState(defaultMarketplaceSettings);
   const [providerForm, setProviderForm] = useState({ providerName: '', providerEmail: '' });
+  const [showProviderForm, setShowProviderForm] = useState(false);
   const [onboardingCredentials, setOnboardingCredentials] = useState(null);
   const [verificationLookup, setVerificationLookup] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -158,6 +161,12 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   useEffect(() => {
     setActiveTab(normalizeAdminTab(tab));
   }, [tab]);
+
+  useEffect(() => {
+    if (section !== 'providers' && activeTab !== 'register-business') {
+      setShowProviderForm(false);
+    }
+  }, [section, activeTab]);
 
   const request = useCallback(async (path, options = {}) => {
     const response = await apiFetch(path, {
@@ -475,13 +484,18 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
     return null;
   };
 
-  const openServiceReview = (service) => runAction(
-    () => request(`/admin/services/${service._id || service.id}`),
-    '',
-    { silent: true }
-  ).then((response) => {
-    setSelectedService(response?.service || service);
-  });
+  const openServiceReview = (service) => {
+    setSelectedService(normalizeServiceDetail(service));
+    return runAction(
+      () => request(`/admin/services/${service._id || service.id}`),
+      '',
+      { silent: true }
+    ).then((response) => {
+      if (response?.service || response) {
+        setSelectedService(normalizeServiceDetail(response?.service || response));
+      }
+    });
+  };
 
   const saveAnnouncement = () => runAction(
     () => request('/admin/announcement', {
@@ -809,11 +823,20 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
             ))}
 
             <Text style={styles.settingsGroupTitle}>Add service provider</Text>
-            <View style={styles.createForm}>
-              <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
-              <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
-              <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
-            </View>
+            {showProviderForm ? (
+              <View style={styles.createForm}>
+                <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
+                <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
+                <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+                <SmallButton label={t('common.cancel')} onPress={() => {
+                  setShowProviderForm(false);
+                  setProviderForm({ providerName: '', providerEmail: '' });
+                  setOnboardingCredentials(null);
+                }} />
+              </View>
+            ) : (
+              <PrimaryButton label={t('admin.addNewProvider')} onPress={() => setShowProviderForm(true)} />
+            )}
             {onboardingCredentials ? (
               <View style={styles.noticeBox}>
                 <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
@@ -827,19 +850,28 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         {activeTab === 'users' && (
           <Section title={t('admin.tabs.users')}>
             {section === 'providers' ? (
-              <View style={styles.createForm}>
-                <Text style={styles.settingsGroupTitle}>{t('admin.createProviderTitle')}</Text>
-                <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
-                <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
-                <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
-                {onboardingCredentials ? (
-                  <View style={styles.noticeBox}>
-                    <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
-                    <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
-                    <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
-                  </View>
-                ) : null}
-              </View>
+              showProviderForm ? (
+                <View style={styles.createForm}>
+                  <Text style={styles.settingsGroupTitle}>{t('admin.createProviderTitle')}</Text>
+                  <Field label={t('admin.providerName')} value={providerForm.providerName} onChangeText={(providerName) => setProviderForm((current) => ({ ...current, providerName }))} />
+                  <Field label={t('admin.providerEmail')} value={providerForm.providerEmail} onChangeText={(providerEmail) => setProviderForm((current) => ({ ...current, providerEmail }))} autoCapitalize="none" keyboardType="email-address" />
+                  <PrimaryButton label={t('admin.createSeller')} loading={saving} onPress={createSeller} />
+                  <SmallButton label={t('common.cancel')} onPress={() => {
+                    setShowProviderForm(false);
+                    setProviderForm({ providerName: '', providerEmail: '' });
+                    setOnboardingCredentials(null);
+                  }} />
+                  {onboardingCredentials ? (
+                    <View style={styles.noticeBox}>
+                      <Text style={styles.cardTitle}>{t('admin.generatedCredentials')}</Text>
+                      <Text style={styles.cardText}>{t('admin.sellerId')}: {onboardingCredentials.sellerId}</Text>
+                      <Text style={styles.cardText}>{t('common.password')}: {onboardingCredentials.generatedPassword}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <PrimaryButton label={t('admin.addNewProvider')} onPress={() => setShowProviderForm(true)} />
+              )
             ) : null}
             {selectedUserIds.length ? <PrimaryButton label={`Delete selected (${selectedUserIds.length})`} loading={saving} onPress={bulkDeleteUsers} /> : null}
             {visibleUsers.map((account) => {
@@ -1032,24 +1064,31 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
       />
 
       <BusinessModal business={selectedBusiness} onClose={() => setSelectedBusiness(null)} />
-      <ServiceReviewModal
+      <ServiceDetailsView
+        visible={Boolean(selectedService)}
         service={selectedService}
-        saving={saving}
+        loading={saving}
+        showProvider
+        title="Service review"
         onClose={() => setSelectedService(null)}
-        onApprove={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })}
-        onReject={() => {
-          const serviceId = selectedService?._id || selectedService?.id;
-          askConfirm({
-            title: 'Reject this service?',
-            message: 'The service provider will be notified and the listing will be rejected.',
-            confirmLabel: t('actions.reject'),
-            destructive: true,
-            onConfirm: () => {
-              closeDialog();
-              reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
-            },
-          });
-        }}
+        footer={(
+          <View style={styles.actionRow}>
+            <SmallButton label={t('actions.approve')} tone="success" onPress={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })} />
+            <SmallButton label={t('actions.reject')} tone="danger" onPress={() => {
+              const serviceId = selectedService?._id || selectedService?.id;
+              askConfirm({
+                title: 'Reject this service?',
+                message: 'The service provider will be notified and the listing will be rejected.',
+                confirmLabel: t('actions.reject'),
+                destructive: true,
+                onConfirm: () => {
+                  closeDialog();
+                  reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
+                },
+              });
+            }} />
+          </View>
+        )}
       />
       <BookingQrScanner
         visible={scannerOpen}
@@ -1294,31 +1333,6 @@ function BusinessModal({ business, onClose }) {
               </View>
             </>
           ) : null}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function ServiceReviewModal({ service, saving, onClose, onApprove, onReject }) {
-  const { t } = useTranslation();
-  if (!service) return null;
-  return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.modalScreen}>
-        <ScrollView contentContainerStyle={styles.modalContent}>
-          <ModalHeader title="Service review" onClose={onClose} />
-          <Detail label={t('admin.name')} value={service.title || service.name} />
-          <Detail label={t('admin.type')} value={service.category || service.serviceType} />
-          <Detail label={t('admin.status')} value={service.approvalStatus || service.status} />
-          <Detail label={t('admin.location')} value={[service.serviceLocation?.city, service.serviceLocation?.country, service.generalLocation].filter(Boolean).join(', ')} />
-          <Detail label={t('admin.descriptionLabel')} value={service.description} />
-          <Text style={styles.cardText}>Approve or reject this service at the bottom of the detail screen.</Text>
-          <View style={styles.actionRow}>
-            <SmallButton label={t('actions.approve')} tone="success" onPress={onApprove} />
-            <SmallButton label={t('actions.reject')} tone="danger" onPress={onReject} />
-          </View>
-          {saving ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
         </ScrollView>
       </View>
     </Modal>

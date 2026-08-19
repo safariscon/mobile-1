@@ -611,6 +611,7 @@
     "providerEmail": "E-mail du prestataire",
     "createSeller": "Creer un prestataire",
     "createProviderTitle": "Creer un prestataire",
+    "addNewProvider": "Ajouter un prestataire",
     "generatedCredentials": "Credentials generes",
     "sellerId": "ID du prestataire",
     "unnamedUser": "User sans nom",

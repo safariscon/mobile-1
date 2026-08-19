@@ -6,7 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { DateTimeField, MultilineField, NumberField, SelectField as ModalSelectField, TextField } from '../components/FormFields';
 import { useAppDialog } from '../components/AppDialog';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
+import ServiceDetailsView from '../components/ServiceDetailsView';
 import ServiceLocationPicker from '../components/ServiceLocationPicker';
+import { fetchSellerServiceDetails } from '../api/services';
+import { normalizeServiceDetail } from '../lib/serviceMapper';
 import WorldLocationFields from '../components/WorldLocationFields';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
@@ -272,6 +275,8 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [uploadingImages, setUploadingImages] = useState(false);
   const [editorError, setEditorError] = useState('');
   const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
+  const [viewService, setViewService] = useState(null);
+  const [viewServiceLoading, setViewServiceLoading] = useState(false);
   const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
 
   const loadData = useCallback(async (silent = false) => {
@@ -475,6 +480,19 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setBusinessEditorOpen(true);
     setError('');
     setEditorError('');
+  };
+
+  const openServiceView = async (business) => {
+    setViewService(normalizeServiceDetail(business));
+    setViewServiceLoading(true);
+    try {
+      const details = await fetchSellerServiceDetails(business._id || business.id, token);
+      setViewService(details);
+    } catch {
+      showResult(t('common.error'), t('serviceDetails.loadFailed'), 'error');
+    } finally {
+      setViewServiceLoading(false);
+    }
   };
 
   const updateBusinessForm = (key, value) => {
@@ -998,6 +1016,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
                   visible: true,
                   title: item.name || item.title || t('seller.service'),
                   items: [
+                    { key: 'view', icon: 'eye', label: t('actions.view'), onPress: () => openServiceView(item) },
                     { key: 'edit', icon: 'edit-2', label: t('actions.edit'), onPress: () => beginEditBusiness(item) },
                     {
                       key: 'availability',
@@ -1048,6 +1067,14 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         onRemoveBookingField={removeBookingField}
         onPickImages={pickBusinessImages}
         onRemoveImage={removeBusinessImage}
+      />
+      <ServiceDetailsView
+        visible={Boolean(viewService)}
+        service={viewService}
+        loading={viewServiceLoading}
+        showProvider={false}
+        title={t('actions.view')}
+        onClose={() => setViewService(null)}
       />
     </View>
   );
