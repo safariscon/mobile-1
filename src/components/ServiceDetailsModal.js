@@ -10,6 +10,7 @@ import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { getVisiblePromotion } from '../lib/promotion';
 import { locationToText } from '../lib/geo';
 import { DateField, MultilineField, NumberField, SelectField, TextField, TimeField } from './FormFields';
+import SchemaFields, { validateSchemaValues } from './SchemaFields';
 import PaymentSheet from './PaymentSheet';
 import WorldLocationFields from './WorldLocationFields';
 import { lightColors } from '../theme/colors';
@@ -312,7 +313,8 @@ const initialBookingValues = (user) => ({
 function BookingRequestForm({ service, user, onBack, onClose }) {
   const { t } = useTranslation();
   const options = asList(service?.options);
-  const customFields = service?.bookingForm?.isPublished
+  const bookingSchema = asList(service?.schemaSnapshot?.bookingFieldSchema);
+  const customFields = !bookingSchema.length && service?.bookingForm?.isPublished
     ? asList(service.bookingForm.fields).filter((field) => field.enabled !== false)
     : [];
   const [values, setValues] = useState(() => initialBookingValues(user));
@@ -320,6 +322,13 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     const defaults = {};
     customFields.forEach((field) => {
       defaults[field.id] = field.type === 'checkbox' ? [] : field.defaultValue || '';
+    });
+    return defaults;
+  });
+  const [bookingAttributes, setBookingAttributes] = useState(() => {
+    const defaults = {};
+    bookingSchema.forEach((field) => {
+      defaults[field.id] = field.type === 'checkbox' || field.type === 'boolean' ? false : field.defaultValue || '';
     });
     return defaults;
   });
@@ -345,6 +354,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
 
   const updateValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   const updateCustomValue = (key, value) => setCustomValues((current) => ({ ...current, [key]: value }));
+  const updateBookingAttribute = (key, value) => setBookingAttributes((current) => ({ ...current, [key]: value }));
 
   const validate = () => {
     if (!service?.hotelId && !service?.id) return t('bookingForm.unavailable');
@@ -363,6 +373,8 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     if (!values.customerCountry || !(values.customerCity || '').trim()) return 'Country and city are required.';
     if (values.rebookId.trim() && verifiedRebookId !== values.rebookId.trim()) return 'Verify the Re-book ID before submitting.';
     if (!values.agreeToTerms) return t('bookingForm.termsError');
+    const schemaError = validateSchemaValues(bookingSchema, bookingAttributes);
+    if (schemaError) return schemaError;
     const missingCustom = customFields.find((field) => {
       if (!field.required) return false;
       const value = customValues[field.id];
@@ -429,6 +441,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
       const response = await submitBookingRequest({
         hotelId: service.hotelId || service.id,
         serviceId: service.hotelId || service.id,
+        optionId: getOptionValue(selectedOption),
         rebookId: verifiedRebookId || undefined,
         quantity,
         numberOfPeople: people,
@@ -445,6 +458,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
         destinationLocation: locationText,
         customerLocation: customerLocationText,
         customerLocationDetails,
+        bookingAttributes,
         bookingDetails: {
           ...values,
           serviceName: service.title || service.name || t('bookingForm.selectedService'),
@@ -465,11 +479,12 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           customerLocation: values.customerLocation.trim() || customerLocationText,
           customerLocationDetails,
           paymentMethod: values.paymentMethod,
-          serviceCategory: service.category || '',
-          bookingType: service.category || 'service',
+          serviceCategory: service.serviceType || service.category || '',
+          bookingType: service.serviceType || service.category || 'service',
           providerRules: service.bookingRules ? [service.bookingRules] : [],
           customFormTitle: service.bookingForm?.title || '',
           customResponses,
+          bookingAttributes,
         },
       });
 
@@ -596,6 +611,17 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
               {verifyingRebook ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryVerifyText}>{verifiedRebookId ? 'Verified' : 'Verify Re-book ID'}</Text>}
             </TouchableOpacity>
           </View>
+
+          {bookingSchema.length ? (
+            <View style={{ marginBottom: 8 }}>
+              <Text style={styles.rulesTitle}>Booking details</Text>
+              <SchemaFields
+                fields={bookingSchema}
+                values={bookingAttributes}
+                onChange={updateBookingAttribute}
+              />
+            </View>
+          ) : null}
 
           {customFields.map((field) => (
             <CustomField

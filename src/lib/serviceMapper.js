@@ -64,10 +64,17 @@ export function collectImages(service) {
     if (url) images.push({ url, alt: firstValue(entry.alt, entry.caption, `${service?.title || service?.name || 'Service'} ${index + 1}`) });
   };
 
+  if (service?.primaryImage) pushImage(service.primaryImage, 0);
   if (Array.isArray(service?.images)) service.images.forEach(pushImage);
   if (Array.isArray(service?.imageUrls)) service.imageUrls.forEach((url, index) => pushImage(url, index));
   if (Array.isArray(service?.photos)) service.photos.forEach(pushImage);
-  return images;
+  // Dedupe by URL while keeping primary first
+  const seen = new Set();
+  return images.filter((image) => {
+    if (seen.has(image.url)) return false;
+    seen.add(image.url);
+    return true;
+  });
 }
 
 export function resolveServiceLocation(service) {
@@ -214,8 +221,15 @@ export function normalizeAvailabilityTable(service) {
 export function normalizeServiceDetail(item, index = 0) {
   const id = String(firstValue(item._id, item.id, item.slug, index));
   const title = firstValue(item.title, item.name, item.displayName, item.businessName, item.hotelName, `${i18n.t('serviceDetails.service')} ${index + 1}`);
-  const rawCategory = firstValue(item.category, item.type, item.serviceType, item.businessType, i18n.t('serviceDetails.service'));
-  const category = labelFromSlug(rawCategory);
+  const rawCategory = firstValue(
+    typeof item.category === 'string' ? item.category : null,
+    item.category?.slug,
+    item.category?.name,
+    item.type,
+    item.serviceType,
+    item.businessType,
+    i18n.t('serviceDetails.service')
+  );
   const location = resolveServiceLocation(item);
   const images = collectImages(item);
   const imageUrls = images.map((image) => image.url);
@@ -223,7 +237,28 @@ export function normalizeServiceDetail(item, index = 0) {
   const inventoryStatus = firstValue(item.inventoryStatus, item.status);
   const availableQuantity = numberFrom(item.availableQuantity, item.quantityRemaining, item.availableInventory, item.inventory);
   const priceAmount = numberFrom(item.pricing?.amount, item.price, item.startingPrice, item.basePrice, item.minPrice);
-  const options = availabilityTable.rows.length
+  const apiOptions = Array.isArray(item.options) ? item.options : [];
+  const options = apiOptions.length
+    ? apiOptions.map((option, optionIndex) => ({
+        id: String(firstValue(option._id, option.id, `option_${optionIndex}`)),
+        name: firstValue(option.name, option.title, i18n.t('serviceDetails.serviceOption')),
+        price: numberFrom(option.price, 0),
+        priceText: formatMoney(numberFrom(option.price, 0)),
+        pricingType: labelFromSlug(option.priceType) || i18n.t('serviceDetails.standard'),
+        durationUnit: firstValue(option.durationUnit, i18n.t('serviceDetails.use')),
+        duration: firstValue(option.maximumDuration, ''),
+        maximumCapacity: Math.max(1, numberFrom(option.capacity, availableQuantity, 1)),
+        details: firstValue(option.details, ''),
+        amenities: [],
+        availabilityStatus: option.isActive === false ? inventoryStatusLabel('unavailable') : inventoryStatusLabel(inventoryStatus),
+        pricingRules: [],
+        availabilityRules: [],
+        extraCells: [],
+        cells: {},
+        attributes: option.attributes || {},
+        raw: option,
+      }))
+    : availabilityTable.rows.length
     ? availabilityTable.rows.map((row) => ({
         id: row.id,
         name: row.optionName,
@@ -261,10 +296,23 @@ export function normalizeServiceDetail(item, index = 0) {
         cells: {},
       }];
 
+  const categoryName = firstValue(
+    item.category?.name,
+    item.categoryName,
+    typeof item.category === 'string' ? labelFromSlug(item.category) : null,
+    labelFromSlug(rawCategory)
+  );
+
   const provider = {
     name: firstValue(item.provider?.name, item.providerName, item.sellerName, item.businessName),
     email: firstValue(item.provider?.email, item.providerEmail, item.contactDetails?.email),
-    phone: firstValue(item.provider?.phone, item.contactDetails?.phone, item.contactDetails?.whatsapp),
+    phone: firstValue(
+      item.provider?.phone,
+      item.contactDetails?.phoneE164,
+      item.contactDetails?.phone,
+      item.contactDetails?.whatsappE164,
+      item.contactDetails?.whatsapp
+    ),
     sellerId: firstValue(item.provider?.sellerId, item.sellerId, item.providerId),
   };
 
@@ -274,8 +322,16 @@ export function normalizeServiceDetail(item, index = 0) {
     title,
     name: title,
     description: firstValue(item.description, item.shortDescription, item.summary, i18n.t('serviceDetails.privacyDescription')),
-    category,
-    serviceType: rawCategory,
+    category: categoryName,
+    serviceType: typeof rawCategory === 'string' ? rawCategory : (rawCategory?.slug || categoryName),
+    categoryId: firstValue(item.categoryId, item.category?._id, item.category?.id),
+    schemaSnapshot: item.schemaSnapshot || null,
+    listingAttributes: item.listingAttributes || {},
+    basePrice: numberFrom(item.basePrice, priceAmount),
+    platformCommissionPercent: numberFrom(item.platformCommissionPercent, item.commissionPercentage),
+    agreementTerms: item.agreementTerms || null,
+    primaryImage: firstValue(item.primaryImage, imageUrls[0]),
+    supportsOptions: item.supportsOptions !== false && item.category?.supportsOptions !== false,
     status: firstValue(item.status, inventoryStatus, 'available'),
     inventoryStatus,
     inventoryStatusLabel: inventoryStatusLabel(inventoryStatus),

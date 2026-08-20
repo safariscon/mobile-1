@@ -85,6 +85,7 @@ function labelFromSlug(value) {
 
 function imageFrom(item) {
   const candidate = firstValue(
+    item.primaryImage,
     item.image,
     item.imageUrl,
     item.coverImage,
@@ -125,8 +126,18 @@ function optimizeImageUrl(image) {
 
 export function normalizeService(item, index = 0) {
   const title = firstValue(item.title, item.displayName, item.anonymousName, item.name, item.hotelName, item.businessName, item.serviceName, `${i18n.t('serviceDetails.service')} ${index + 1}`);
-  const rawCategory = firstValue(item.category, item.type, item.serviceType, item.businessType, i18n.t('serviceDetails.service'));
-  const category = labelFromSlug(rawCategory);
+  const rawCategory = firstValue(
+    typeof item.category === 'string' ? item.category : null,
+    item.category?.name,
+    item.category?.slug,
+    item.type,
+    item.serviceType,
+    item.businessType,
+    i18n.t('serviceDetails.service')
+  );
+  const category = typeof item.category === 'object' && item.category?.name
+    ? item.category.name
+    : labelFromSlug(rawCategory);
   const city = firstValue(
     item.generalLocation,
     item.destinationLocation,

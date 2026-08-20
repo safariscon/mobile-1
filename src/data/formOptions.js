@@ -1,3 +1,7 @@
+/**
+ * @deprecated Prefer GET /api/service-categories for marketplace category lists.
+ * These static labels remain only as a fallback for offline / legacy screens.
+ */
 const slug = (label) => label.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export const SERVICE_CATEGORY_LABELS = [

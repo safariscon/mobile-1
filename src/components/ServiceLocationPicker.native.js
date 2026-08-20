@@ -31,18 +31,29 @@ export default function ServiceLocationPicker({ value, onChange }) {
     longitudeDelta: hasPoint ? 0.012 : 40,
   }), [coordinate.latitude, coordinate.longitude, hasPoint]);
 
-  const updatePoint = (nextLatitude, nextLongitude, source, fullAddress = '') => {
+  const updatePoint = (nextLatitude, nextLongitude, source, place = null) => {
     if (!Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) {
       setMessage('Choose a valid map point.');
       return;
     }
     setMessage('');
     setResults([]);
+    const fullAddress = typeof place === 'string' ? place : (place?.formattedAddress || place?.label || '');
     const nextValue = {
       ...value,
       latitude: String(nextLatitude),
       longitude: String(nextLongitude),
+      latitudeRaw: place?.latitudeRaw != null ? String(place.latitudeRaw) : String(nextLatitude),
+      longitudeRaw: place?.longitudeRaw != null ? String(place.longitudeRaw) : String(nextLongitude),
       fullAddress: fullAddress || value?.fullAddress || '',
+      formattedAddress: fullAddress || value?.formattedAddress || value?.fullAddress || '',
+      country: place?.country || value?.country,
+      countryCode: place?.countryCode || value?.countryCode,
+      state: place?.state || value?.state,
+      city: place?.city || value?.city,
+      area: place?.area || value?.area,
+      placeId: place?.placeId || value?.placeId,
+      placeName: place?.placeName || value?.placeName,
       locationSource: source,
       isExactLocationVerified: source === 'confirm' || value?.isExactLocationVerified === true,
     };
@@ -54,9 +65,16 @@ export default function ServiceLocationPicker({ value, onChange }) {
             onChange?.({
               ...nextValue,
               fullAddress: result.label,
+              formattedAddress: result.formattedAddress || result.label,
               country: result.country || nextValue.country,
+              countryCode: result.countryCode || nextValue.countryCode,
               state: result.state || nextValue.state,
               city: result.city || nextValue.city,
+              area: result.area || nextValue.area,
+              latitudeRaw: result.latitudeRaw || nextValue.latitudeRaw,
+              longitudeRaw: result.longitudeRaw || nextValue.longitudeRaw,
+              placeId: result.placeId || nextValue.placeId,
+              placeName: result.placeName || nextValue.placeName,
               province: result.state || nextValue.province,
               district: result.city || nextValue.district,
             });
@@ -141,7 +159,7 @@ export default function ServiceLocationPicker({ value, onChange }) {
       {hasPoint ? <Text style={styles.success}>Exact location selected by {String(value?.locationSource || 'map_click').replace('_', ' ')}{value?.isExactLocationVerified ? ' and confirmed' : ''}</Text> : <Text style={styles.warning}>Exact map point required before publishing.</Text>}
       {!!message && <Text style={styles.warning}>{message}</Text>}
       {results.map((result) => (
-        <TouchableOpacity key={`${result.latitude}-${result.longitude}`} style={styles.result} onPress={() => updatePoint(result.latitude, result.longitude, 'search', result.label)} activeOpacity={0.84}>
+        <TouchableOpacity key={`${result.latitude}-${result.longitude}-${result.placeId || result.label}`} style={styles.result} onPress={() => updatePoint(result.latitude, result.longitude, 'search', result)} activeOpacity={0.84}>
           <Text style={styles.resultText}>{result.label}</Text>
         </TouchableOpacity>
       ))}

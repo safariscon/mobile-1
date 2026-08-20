@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { MultilineField, NumberField, SelectField, TextField } from '../components/FormFields';
 import WorldLocationFields from '../components/WorldLocationFields';
+import { categorySelectOptions, fetchServiceCategories } from '../api/categories';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
@@ -30,6 +31,7 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
   const { token, refreshUser } = useAuth();
   const [form, setForm] = useState({
     title: '',
+    categoryId: '',
     category: 'hotel-rooms',
     description: '',
     country: '',
@@ -47,11 +49,30 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    fetchServiceCategories({ seller: true })
+      .then((payload) => {
+        const list = payload.categories || [];
+        setCategories(list);
+        if (list[0] && !form.categoryId) {
+          setForm((current) => ({
+            ...current,
+            categoryId: list[0]._id || list[0].id,
+            category: list[0].slug || list[0].name,
+          }));
+        }
+      })
+      .catch(() => setCategories([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const categoryOptions = categories.length ? categorySelectOptions(categories) : SERVICE_CATEGORY_OPTIONS;
 
   const handleSubmit = async () => {
-    if (!form.title || !form.category || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
+    if (!form.title || !(form.categoryId || form.category) || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
       setError(t('businessRegistration.required'));
       return;
     }
@@ -69,9 +90,11 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
         body: JSON.stringify({
           title: form.title,
           name: form.title,
+          categoryId: form.categoryId || undefined,
           category: form.category,
           description: form.description,
           availableQuantity: 1,
+          basePrice: Number(form.optionPrice) || 0,
           serviceLocation: {
             country: form.country,
             countryCode: form.countryCode,
@@ -130,7 +153,17 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
         {!!success && <Text style={styles.successText}>{success}</Text>}
 
         <TextField label={t('seller.businessName')} value={form.title} onChangeText={(value) => update('title', value)} />
-        <SelectField label={t('businessRegistration.businessCategory')} value={form.category} options={SERVICE_CATEGORY_OPTIONS} onChange={(value) => update('category', value)} placeholder="Select category" />
+        <SelectField
+          label={t('businessRegistration.businessCategory')}
+          value={form.categoryId || form.category}
+          options={categoryOptions}
+          onChange={(value) => {
+            const match = categories.find((item) => String(item._id || item.id) === String(value) || item.slug === value);
+            update('categoryId', match?._id || match?.id || value);
+            update('category', match?.slug || match?.name || value);
+          }}
+          placeholder="Select category"
+        />
         <MultilineField label={t('businessRegistration.businessDescription')} value={form.description} onChangeText={(value) => update('description', value)} placeholder="Example: We rent clean cars in Kigali with a driver or self-drive option." />
         <WorldLocationFields
           value={{ country: form.country, countryCode: form.countryCode, state: form.state, city: form.city, sector: form.sector }}

@@ -22,6 +22,12 @@ import BookingQrScanner from '../components/BookingQrScanner';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import PolicyLinks from '../components/PolicyLinks';
 import ServiceDetailsView from '../components/ServiceDetailsView';
+import {
+  createAdminServiceCategory,
+  deleteAdminServiceCategory,
+  fetchAdminServiceCategories,
+  updateAdminServiceCategory,
+} from '../api/categories';
 import { normalizeServiceDetail } from '../lib/serviceMapper';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
@@ -46,7 +52,7 @@ const ADMIN_PAGE_META = {
   verification: { title: 'Verify booking', description: 'Scan or enter booking verification tokens and codes.', icon: 'check-square' },
   insights: { title: 'Insights', description: 'View analytics, revenue, conversion rates, and recent platform activity.', icon: 'bar-chart-2' },
   notifications: { title: 'Notifications', description: 'Manage the announcement messages shown to public users.', icon: 'bell' },
-  settings: { title: 'Settings', description: 'Change app language, theme, booking mode, rules, and commission defaults.', icon: 'settings' },
+  settings: { title: 'Settings', description: 'Change app language, theme, booking mode, rules, commission defaults, and service categories.', icon: 'settings' },
 };
 
 function normalizeAdminTab(tab) {
@@ -156,6 +162,20 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   const [selectedService, setSelectedService] = useState(null);
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [decision, setDecision] = useState({ totalPrice: '', commissionPercentage: '10', paymentReason: t('admin.defaultPaymentReason') });
+  const [approvalForm, setApprovalForm] = useState({
+    cancelWindowHours: '6',
+    cancelPenaltyPercent: '20',
+    platformCommissionPercent: '10',
+    notes: '',
+    reason: '',
+  });
+  const [serviceCategories, setServiceCategories] = useState([]);
+  const [categoryForm, setCategoryForm] = useState({
+    name: '',
+    slug: '',
+    group: 'Other',
+    supportsOptions: true,
+  });
   const [analytics, setAnalytics] = useState(null);
 
   useEffect(() => {
@@ -263,6 +283,8 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         items: items.slice(0, 5),
       });
       setMarketplaceSettings(settingsResp.settings || defaultMarketplaceSettings);
+      const categories = await fetchAdminServiceCategories().catch(() => []);
+      setServiceCategories(categories);
     } catch (requestError) {
       showResult(t('common.error'), requestError.message || t('admin.loadFailed'), 'error');
     } finally {
@@ -460,11 +482,35 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   );
 
   const reviewService = (serviceId, status, { confirm = false } = {}) => {
+    const body = status === 'approved'
+      ? {
+          status: 'approved',
+          cancelWindowHours: Number(approvalForm.cancelWindowHours) || 6,
+          cancelPenaltyPercent: Number(approvalForm.cancelPenaltyPercent),
+          platformCommissionPercent: Number(approvalForm.platformCommissionPercent),
+          notes: approvalForm.notes || undefined,
+        }
+      : {
+          status: 'rejected',
+          reason: String(approvalForm.reason || '').trim() || 'Incomplete listing',
+        };
+
+    if (status === 'approved') {
+      if (!Number.isFinite(body.cancelPenaltyPercent) || body.cancelPenaltyPercent < 0) {
+        showResult(t('common.error'), 'Cancel penalty % is required.', 'error');
+        return null;
+      }
+      if (!Number.isFinite(body.platformCommissionPercent) || body.platformCommissionPercent < 0) {
+        showResult(t('common.error'), 'Platform commission % is required.', 'error');
+        return null;
+      }
+    }
+
     const run = () => runAction(
       () => request(`/admin/services/${serviceId}/approval`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       }),
       status === 'approved' ? 'Service approved.' : 'Service rejected.'
     );
@@ -472,7 +518,7 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
     askConfirm({
       title: status === 'approved' ? 'Approve this service?' : 'Reject this service?',
       message: status === 'approved'
-        ? 'This service will be posted to the marketplace.'
+        ? `Approve with ${body.cancelPenaltyPercent}% cancel penalty and ${body.platformCommissionPercent}% commission.`
         : 'The service provider will be notified and the listing will be rejected.',
       confirmLabel: status === 'approved' ? t('actions.approve') : t('actions.reject'),
       destructive: status !== 'approved',
@@ -484,15 +530,65 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
     return null;
   };
 
+  const loadServiceCategories = () => runAction(
+    async () => {
+      const list = await fetchAdminServiceCategories();
+      setServiceCategories(list);
+      return list;
+    },
+    '',
+    { silent: true }
+  );
+
+  const saveCategory = () => runAction(async () => {
+    if (!categoryForm.name.trim()) throw new Error('Category name is required.');
+    const slug = categoryForm.slug.trim() || categoryForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    await createAdminServiceCategory({
+      name: categoryForm.name.trim(),
+      slug,
+      group: categoryForm.group.trim() || 'Other',
+      supportsOptions: categoryForm.supportsOptions !== false,
+      listingFieldSchema: [],
+      optionFieldSchema: [],
+      bookingFieldSchema: [],
+      defaults: { suggestedCancelWindowHours: 6 },
+    });
+    setCategoryForm({ name: '', slug: '', group: 'Other', supportsOptions: true });
+    await loadServiceCategories();
+  }, 'Category created.');
+
+  const toggleCategoryActive = (category) => runAction(async () => {
+    if (category.isActive === false) {
+      await updateAdminServiceCategory(category._id || category.id, { ...category, isActive: true });
+    } else {
+      await deleteAdminServiceCategory(category._id || category.id);
+    }
+    await loadServiceCategories();
+  }, 'Category updated.');
+
   const openServiceReview = (service) => {
     setSelectedService(normalizeServiceDetail(service));
+    setApprovalForm({
+      cancelWindowHours: String(service?.cancelWindowHours || service?.cancellationPolicy?.windowHours || 6),
+      cancelPenaltyPercent: String(service?.cancelPenaltyPercent ?? service?.cancellationPolicy?.penaltyPercent ?? 20),
+      platformCommissionPercent: String(service?.platformCommissionPercent ?? service?.commissionPercentage ?? marketplaceSettings.defaultCommissionPercentage ?? 10),
+      notes: service?.agreementTerms?.notes || '',
+      reason: '',
+    });
     return runAction(
       () => request(`/admin/services/${service._id || service.id}`),
       '',
       { silent: true }
     ).then((response) => {
       if (response?.service || response) {
-        setSelectedService(normalizeServiceDetail(response?.service || response));
+        const details = normalizeServiceDetail(response?.service || response);
+        setSelectedService(details);
+        setApprovalForm((current) => ({
+          ...current,
+          cancelWindowHours: String(details.cancelWindowHours || current.cancelWindowHours),
+          cancelPenaltyPercent: String(details.cancelPenaltyPercent || current.cancelPenaltyPercent),
+          platformCommissionPercent: String(details.platformCommissionPercent || current.platformCommissionPercent),
+        }));
       }
     });
   };
@@ -799,6 +895,37 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
             <Field label={t('admin.defaultCommission')} value={String(marketplaceSettings.defaultCommissionPercentage ?? 10)} onChangeText={(value) => setMarketplaceSettings((current) => ({ ...current, defaultCommissionPercentage: value }))} keyboardType="number-pad" />
             <Field label={t('admin.rulesOneLine')} value={(marketplaceSettings.bookingRules || []).join('\n')} onChangeText={(text) => setMarketplaceSettings((current) => ({ ...current, bookingRules: text.split('\n') }))} multiline />
             <PrimaryButton label={t('admin.saveRules')} loading={saving} onPress={() => saveMarketplaceSettings()} />
+
+            <Text style={styles.settingsGroupTitle}>Service categories</Text>
+            <Field label="Name" value={categoryForm.name} onChangeText={(name) => setCategoryForm((current) => ({ ...current, name }))} />
+            <Field label="Slug" value={categoryForm.slug} onChangeText={(slug) => setCategoryForm((current) => ({ ...current, slug }))} autoCapitalize="none" />
+            <Field label="Group" value={categoryForm.group} onChangeText={(group) => setCategoryForm((current) => ({ ...current, group }))} />
+            <ToggleRow
+              label="Supports options"
+              value={categoryForm.supportsOptions !== false}
+              onChange={(supportsOptions) => setCategoryForm((current) => ({ ...current, supportsOptions }))}
+            />
+            <PrimaryButton label="Create category" loading={saving} onPress={saveCategory} />
+            {serviceCategories.map((category) => (
+              <Card key={category._id || category.id || category.slug}>
+                <Text style={styles.cardTitle}>{category.name}</Text>
+                <Text style={styles.cardMeta}>{category.group || 'Other'} · {category.slug}</Text>
+                <Text style={styles.cardText}>
+                  Options: {category.supportsOptions === false ? 'No (base price)' : 'Yes'} · {category.isActive === false ? 'Inactive' : 'Active'}
+                </Text>
+                <Text style={styles.cardText}>
+                  Fields: listing {(category.listingFieldSchema || []).length} · option {(category.optionFieldSchema || []).length} · booking {(category.bookingFieldSchema || []).length}
+                </Text>
+                <View style={styles.actionRow}>
+                  <SmallButton
+                    label={category.isActive === false ? 'Reactivate' : 'Deactivate'}
+                    tone={category.isActive === false ? 'success' : 'danger'}
+                    onPress={() => toggleCategoryActive(category)}
+                  />
+                </View>
+              </Card>
+            ))}
+
             <Text style={styles.settingsGroupTitle}>Policies</Text>
             <PolicyLinks />
           </Section>
@@ -1085,21 +1212,52 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         title="Service review"
         onClose={() => setSelectedService(null)}
         footer={(
-          <View style={styles.actionRow}>
-            <SmallButton label={t('actions.approve')} tone="success" onPress={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })} />
-            <SmallButton label={t('actions.reject')} tone="danger" onPress={() => {
-              const serviceId = selectedService?._id || selectedService?.id;
-              askConfirm({
-                title: 'Reject this service?',
-                message: 'The service provider will be notified and the listing will be rejected.',
-                confirmLabel: t('actions.reject'),
-                destructive: true,
-                onConfirm: () => {
-                  closeDialog();
-                  reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
-                },
-              });
-            }} />
+          <View style={{ gap: 10 }}>
+            <Text style={styles.settingsGroupTitle}>Agreement terms (required to approve)</Text>
+            <Field
+              label="Cancel window (hours)"
+              value={String(approvalForm.cancelWindowHours)}
+              onChangeText={(cancelWindowHours) => setApprovalForm((current) => ({ ...current, cancelWindowHours }))}
+              keyboardType="number-pad"
+            />
+            <Field
+              label="Cancel penalty %"
+              value={String(approvalForm.cancelPenaltyPercent)}
+              onChangeText={(cancelPenaltyPercent) => setApprovalForm((current) => ({ ...current, cancelPenaltyPercent }))}
+              keyboardType="number-pad"
+            />
+            <Field
+              label="Platform commission %"
+              value={String(approvalForm.platformCommissionPercent)}
+              onChangeText={(platformCommissionPercent) => setApprovalForm((current) => ({ ...current, platformCommissionPercent }))}
+              keyboardType="number-pad"
+            />
+            <Field
+              label="Notes"
+              value={approvalForm.notes}
+              onChangeText={(notes) => setApprovalForm((current) => ({ ...current, notes }))}
+            />
+            <Field
+              label="Reject reason"
+              value={approvalForm.reason}
+              onChangeText={(reason) => setApprovalForm((current) => ({ ...current, reason }))}
+            />
+            <View style={styles.actionRow}>
+              <SmallButton label={t('actions.approve')} tone="success" onPress={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })} />
+              <SmallButton label={t('actions.reject')} tone="danger" onPress={() => {
+                const serviceId = selectedService?._id || selectedService?.id;
+                askConfirm({
+                  title: 'Reject this service?',
+                  message: 'The service provider will be notified and the listing will be rejected.',
+                  confirmLabel: t('actions.reject'),
+                  destructive: true,
+                  onConfirm: () => {
+                    closeDialog();
+                    reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
+                  },
+                });
+              }} />
+            </View>
           </View>
         )}
       />

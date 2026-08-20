@@ -73,14 +73,35 @@ export async function fetchStateCities(country, state) {
 
 function mapGeoResults(items = []) {
   return items
-    .map((item) => ({
-      label: item.address || item.label || item.display_name || item.name || '',
-      latitude: Number(item.latitude ?? item.lat ?? item.geometry?.coordinates?.[1]),
-      longitude: Number(item.longitude ?? item.lon ?? item.lng ?? item.geometry?.coordinates?.[0]),
-      country: item.country || item.address?.country || '',
-      state: item.state || item.address?.state || '',
-      city: item.city || item.address?.city || item.address?.town || '',
-    }))
+    .map((item) => {
+      const latitudeRaw = item.latitudeRaw != null
+        ? String(item.latitudeRaw)
+        : item.latitude != null || item.lat != null
+          ? String(item.latitude ?? item.lat ?? item.geometry?.coordinates?.[1] ?? '')
+          : '';
+      const longitudeRaw = item.longitudeRaw != null
+        ? String(item.longitudeRaw)
+        : item.longitude != null || item.lon != null || item.lng != null
+          ? String(item.longitude ?? item.lon ?? item.lng ?? item.geometry?.coordinates?.[0] ?? '')
+          : '';
+      const latitude = Number(latitudeRaw || (item.latitude ?? item.lat ?? item.geometry?.coordinates?.[1]));
+      const longitude = Number(longitudeRaw || (item.longitude ?? item.lon ?? item.lng ?? item.geometry?.coordinates?.[0]));
+      return {
+        label: item.formattedAddress || item.address || item.label || item.display_name || item.name || '',
+        formattedAddress: item.formattedAddress || item.address || item.label || item.display_name || item.name || '',
+        latitude,
+        longitude,
+        latitudeRaw: latitudeRaw || (Number.isFinite(latitude) ? String(latitude) : ''),
+        longitudeRaw: longitudeRaw || (Number.isFinite(longitude) ? String(longitude) : ''),
+        country: item.country || item.address?.country || '',
+        countryCode: item.countryCode || item.address?.country_code || '',
+        state: item.state || item.province || item.address?.state || '',
+        city: item.city || item.district || item.address?.city || item.address?.town || '',
+        area: item.area || item.sector || item.address?.suburb || '',
+        placeId: item.placeId || item.place_id || '',
+        placeName: item.placeName || item.name || '',
+      };
+    })
     .filter((item) => item.label && Number.isFinite(item.latitude) && Number.isFinite(item.longitude));
 }
 
@@ -146,12 +167,20 @@ export async function reverseGeocode(latitude, longitude) {
       skipAuth: true,
     });
     const data = await readJson(response);
-    if (response.ok && (data.address || data.fullAddress || data.label)) {
+    const place = data.place || data;
+    if (response.ok && (place.formattedAddress || place.address || data.fullAddress || data.label || data.address)) {
       return {
-        label: data.address || data.fullAddress || data.label,
-        country: data.country || '',
-        state: data.state || data.province || '',
-        city: data.city || data.district || '',
+        label: place.formattedAddress || place.address || data.address || data.fullAddress || data.label,
+        formattedAddress: place.formattedAddress || place.address || data.address || data.fullAddress || data.label,
+        country: place.country || data.country || '',
+        countryCode: place.countryCode || data.countryCode || '',
+        state: place.state || place.province || data.state || data.province || '',
+        city: place.city || place.district || data.city || data.district || '',
+        area: place.area || place.sector || data.area || '',
+        latitudeRaw: place.latitudeRaw != null ? String(place.latitudeRaw) : String(latitude),
+        longitudeRaw: place.longitudeRaw != null ? String(place.longitudeRaw) : String(longitude),
+        placeId: place.placeId || '',
+        placeName: place.placeName || place.name || '',
       };
     }
   } catch (_error) {
@@ -164,7 +193,15 @@ export async function reverseGeocode(latitude, longitude) {
     });
     const hotelData = await readJson(hotelResponse);
     if (hotelResponse.ok && hotelData.address) {
-      return { label: hotelData.address, country: hotelData.country || '', state: hotelData.state || '', city: hotelData.city || '' };
+      return {
+        label: hotelData.address,
+        formattedAddress: hotelData.address,
+        country: hotelData.country || '',
+        state: hotelData.state || '',
+        city: hotelData.city || '',
+        latitudeRaw: String(latitude),
+        longitudeRaw: String(longitude),
+      };
     }
   } catch (_error) {
     // Fall through to Nominatim.
@@ -176,8 +213,11 @@ export async function reverseGeocode(latitude, longitude) {
   const data = await readJson(response);
   return {
     label: data.display_name || '',
+    formattedAddress: data.display_name || '',
     country: data.address?.country || '',
     state: data.address?.state || '',
     city: data.address?.city || data.address?.town || data.address?.village || '',
+    latitudeRaw: String(latitude),
+    longitudeRaw: String(longitude),
   };
 }

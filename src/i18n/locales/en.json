@@ -404,8 +404,8 @@
     "payoutAccountNumber": "Payout phone / account number",
     "photos": "Photos",
     "uploadPhotos": "Choose and upload photos",
-    "uploadHint": "Upload up to 3 photos from your phone gallery.",
-    "imageLimit": "Choose up to 3 images. Each image must be 5 MB or smaller.",
+    "uploadHint": "Upload up to 5 photos from your phone gallery.",
+    "imageLimit": "Choose up to 5 images. Each image must be 5 MB or smaller.",
     "noPhotos": "No photos uploaded yet.",
     "priceTable": "Service / Price table",
     "option": "Option {{number}}",
@@ -456,7 +456,7 @@
     "showQuestion": "Show this question"
     ,"whatsapp": "WhatsApp"
     ,"bankAccount": "Bank account"
-    ,"photoLimitReached": "You can upload up to 3 photos. Remove one before adding another."
+    ,"photoLimitReached": "You can upload up to 5 photos. Remove one before adding another."
     ,"placeholders": {
       "date": "YYYY-MM-DD",
       "dateTime": "YYYY-MM-DDTHH:mm",

@@ -10,10 +10,8 @@ import ServiceDetailsView from '../components/ServiceDetailsView';
 import ServiceLocationPicker from '../components/ServiceLocationPicker';
 import WorldLocationFields from '../components/WorldLocationFields';
 import {
-  buildServicePayload,
   completeVerifiedSellerBooking,
   confirmRebookUnavailable,
-  createSellerService,
   deleteSellerService,
   fetchSellerBookings,
   fetchSellerFinance,
@@ -22,19 +20,20 @@ import {
   fetchSellerPayoutDetails,
   fetchSellerRebookRequests,
   fetchSellerService,
+  fetchSellerServiceOptions,
   fetchSellerServices,
   lookupSellerBookingVerification,
   saveSellerPayoutDetails,
   updateSellerBookingStatus,
   updateSellerService,
-  uploadSellerImages,
   verifySellerBookingCode,
 } from '../api/seller';
+import { fetchServiceCategories } from '../api/categories';
 import { fetchMarketplaceSettings } from '../api/services';
+import ServiceEditorModal from '../components/ServiceEditorModal';
 import { normalizeServiceDetail } from '../lib/serviceMapper';
 import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
-import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { lightColors } from '../theme/colors';
 import { baseInputStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -43,221 +42,9 @@ import { isDraftListing, matchesServiceFilter } from '../lib/listings';
 let colors = lightColors;
 let styles;
 
-const DEFAULT_COLUMNS = [
-  { id: 'service', label: 'Option name' },
-  { id: 'price', label: 'Price (RWF)' },
-  { id: 'priceType', label: 'Price type' },
-  { id: 'calculationField', label: 'Calculation field' },
-  { id: 'durationUnit', label: 'Duration unit' },
-  { id: 'maximumDuration', label: 'Maximum duration' },
-  { id: 'availability', label: 'Availability / capacity' },
-  { id: 'availableFrom', label: 'Available from' },
-  { id: 'availableTo', label: 'Available until' },
-  { id: 'availableDays', label: 'Available days' },
-  { id: 'availableStartTime', label: 'Open time' },
-  { id: 'availableEndTime', label: 'Close time' },
-  { id: 'requiresTime', label: 'Times required' },
-  { id: 'details', label: 'Details / amenities' },
-];
-
-const PRICE_TABLE_OPTIONS = {
-  priceType: [['fixed', 'Fixed price'], ['per-person', 'Per person'], ['per-room', 'Per room'], ['per-night', 'Per night'], ['per-day', 'Per day'], ['per-hour', 'Per hour'], ['per-item', 'Per item'], ['per-ticket', 'Per ticket'], ['per-package', 'Per package'], ['per-session', 'Per session']],
-  calculationField: [['people', 'Number of people'], ['quantity', 'Quantity / units'], ['duration', 'Booking duration'], ['package', 'Selected package'], ['fixed', 'Fixed price']],
-  durationUnit: [['minutes', 'Minutes'], ['hours', 'Hours'], ['days', 'Days'], ['nights', 'Nights'], ['same-day', 'Same day only'], ['none', 'No duration needed']],
-};
-
-const FIELD_TYPES = [
-  ['text', 'Short answer'],
-  ['textarea', 'Long answer'],
-  ['number', 'Number'],
-  ['email', 'Email address'],
-  ['tel', 'Phone number'],
-  ['date', 'Date'],
-  ['time', 'Time'],
-  ['datetime-local', 'Date and time'],
-  ['select', 'Dropdown menu'],
-  ['radio', 'Choose one option'],
-  ['checkbox', 'Choose multiple options'],
-  ['file', 'Upload a file'],
-  ['url', 'Website link'],
-];
-
-const DEFAULT_BOOKING_FIELDS = [
-  { id: 'field_name', type: 'text', label: 'Full Name', placeholder: 'Your full name', required: true, enabled: true, options: [] },
-  { id: 'field_phone', type: 'tel', label: 'Phone Number', placeholder: '078xxxxxxx', required: true, enabled: true, options: [] },
-  { id: 'field_date', type: 'date', label: 'Booking Date', placeholder: 'YYYY-MM-DD', required: true, enabled: true, options: [] },
-];
-
-function bookingFieldsForLanguage(t) {
-  return [
-    { id: 'field_name', type: 'text', label: t('seller.defaults.fullName'), placeholder: t('seller.defaults.fullNamePlaceholder'), required: true, enabled: true, options: [] },
-    { id: 'field_phone', type: 'tel', label: t('seller.defaults.phoneNumber'), placeholder: '078xxxxxxx', required: true, enabled: true, options: [] },
-    { id: 'field_date', type: 'date', label: t('seller.defaults.bookingDate'), placeholder: t('seller.placeholders.date'), required: true, enabled: true, options: [] },
-  ];
-}
-
-const emptyBusinessForm = {
-  title: '',
-  category: 'hotel-rooms',
-  description: '',
-  serviceLocation: { country: '', countryCode: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', street: '', fullAddress: '', formattedAddress: '', latitude: '', longitude: '', locationSource: 'map_click', isExactLocationVerified: false },
-  locationDetails: { country: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', street: '' },
-  payoutDetails: { method: 'momo', providerId: 'mtn', accountName: '', accountNumber: '', instructions: '' },
-  contactDetails: { phone: '', whatsapp: '' },
-  status: 'available',
-  customAvailability: '',
-  remainingQuantity: '',
-  images: ['', '', ''],
-  imageFiles: [],
-  promotion: { enabled: false, title: '', percent: '', note: '', startAt: '', endAt: '' },
-  promotionHistory: [],
-  rebookSettings: { requestDeadlineHours: '24', rebookIdValidityHours: '72' },
-  cancelWindowHours: '6',
-  cancelPenaltyPercent: '20',
-  availabilityTable: {
-    columns: DEFAULT_COLUMNS,
-    rows: [{ id: 'row_1', sortOrder: 1, cells: { service: '', price: '' } }],
-  },
-  bookingMode: 'manual',
-  bookingForm: {
-    title: '',
-    description: '',
-    isPublished: true,
-    fields: DEFAULT_BOOKING_FIELDS,
-  },
-};
-
-function normalizeTable(table) {
-  return {
-    columns: DEFAULT_COLUMNS,
-    rows: Array.isArray(table?.rows) && table.rows.length
-      ? table.rows.map((row, index) => ({
-          id: row.id || `row_${index + 1}`,
-          sortOrder: row.sortOrder ?? index + 1,
-          cells: { ...(row.cells || {}) },
-        }))
-      : emptyBusinessForm.availabilityTable.rows,
-  };
-}
-
-function padDatePart(value) {
-  return String(value).padStart(2, '0');
-}
-
-function toDateInputValue(date) {
-  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
-}
-
-function addDays(days) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return toDateInputValue(date);
-}
-
 function getSaveErrorMessage(error, fallback) {
   const message = String(error?.message || '').trim();
   return message || fallback;
-}
-
-function normalizePromotionDate(value, endOfDay = false) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return `${text}T${endOfDay ? '23:59' : '00:00'}`;
-  }
-  return text;
-}
-
-function validateBusinessForm(form, t) {
-  if (!form.title.trim()) return t('seller.validation.businessNameRequired');
-  if (!form.category.trim()) return t('seller.validation.categoryRequired');
-  if (!form.serviceLocation.country.trim() || !(form.serviceLocation.city || form.serviceLocation.district || '').trim()) {
-    return 'Country and city are required.';
-  }
-  if (form.status === 'available' && (!form.serviceLocation.latitude || !form.serviceLocation.longitude)) {
-    return 'Exact map coordinates are required before a service can be available.';
-  }
-  if (!form.contactDetails?.phone?.trim()) {
-    return t('seller.validation.phoneRequired', { defaultValue: 'Contact phone is required.' });
-  }
-  const hasPriceRow = form.availabilityTable.rows.some((row) => String(row.cells?.service || '').trim() && String(row.cells?.price || '').trim());
-  if (!hasPriceRow) return t('seller.validation.priceRequired');
-  if (form.promotion.enabled) {
-    if (!form.promotion.title.trim()) return t('seller.validation.promotionTitleRequired');
-    if (!form.promotion.startAt || !form.promotion.endAt) return t('seller.validation.promotionDatesRequired');
-    const percent = Number(form.promotion.percent);
-    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) return t('seller.validation.promotionPercentRequired');
-    if (new Date(form.promotion.endAt) <= new Date(form.promotion.startAt)) return t('seller.validation.promotionEndAfterStart');
-  }
-  return '';
-}
-
-function formFromBusiness(business, t) {
-  const defaultFields = t ? bookingFieldsForLanguage(t) : DEFAULT_BOOKING_FIELDS;
-  const defaultFormTitle = t ? t('seller.defaults.bookingRequest') : '';
-  const sourceLocation = business?.serviceLocation || {};
-  const legacyLocation = business?.locationDetails || {};
-  return {
-    ...emptyBusinessForm,
-    title: business?.title || business?.name || '',
-    category: business?.category || business?.type || 'hotel-rooms',
-    description: business?.description || '',
-    serviceLocation: {
-      ...emptyBusinessForm.serviceLocation,
-      ...sourceLocation,
-      country: sourceLocation.country || '',
-      countryCode: sourceLocation.countryCode || '',
-      state: sourceLocation.state || sourceLocation.province || legacyLocation.state || legacyLocation.province || '',
-      city: sourceLocation.city || sourceLocation.district || legacyLocation.city || legacyLocation.district || '',
-      province: sourceLocation.province || sourceLocation.state || legacyLocation.province || '',
-      district: sourceLocation.district || sourceLocation.city || legacyLocation.district || '',
-      sector: sourceLocation.sector || legacyLocation.sector || '',
-      cell: sourceLocation.cell || legacyLocation.cell || '',
-      village: sourceLocation.village || legacyLocation.village || '',
-      street: sourceLocation.street || legacyLocation.street || '',
-      fullAddress: sourceLocation.fullAddress || business?.contactDetails?.exactAddress || business?.location || '',
-      formattedAddress: sourceLocation.formattedAddress || sourceLocation.fullAddress || '',
-      latitude: sourceLocation.latitude ?? business?.contactDetails?.latitude ?? '',
-      longitude: sourceLocation.longitude ?? business?.contactDetails?.longitude ?? '',
-    },
-    locationDetails: { ...emptyBusinessForm.locationDetails, ...legacyLocation },
-    payoutDetails: {
-      ...emptyBusinessForm.payoutDetails,
-      ...(business?.payoutDetails || {}),
-      method: String(business?.payoutDetails?.method || 'momo').toLowerCase().includes('bank') ? 'bank' : 'momo',
-      providerId: business?.payoutDetails?.providerId || 'mtn',
-      accountNumber: business?.payoutDetails?.accountNumber || business?.payoutDetails?.msisdn || '',
-    },
-    contactDetails: { ...emptyBusinessForm.contactDetails, ...(business?.contactDetails || {}) },
-    status: business?.status === 'unavailable' ? 'unavailable' : business?.availabilityText ? 'custom' : 'available',
-    customAvailability: business?.availabilityText || '',
-    remainingQuantity: business?.availabilityText || String(business?.availableQuantity ?? business?.quantityRemaining ?? ''),
-    images: [...(Array.isArray(business?.images) ? business.images : []), '', '', ''].slice(0, 3),
-    imageFiles: [],
-    promotion: {
-      enabled: business?.promotion?.enabled === true,
-      title: business?.promotion?.title || '',
-      percent: String(business?.promotion?.percent || ''),
-      note: business?.promotion?.note || business?.promotion?.description || '',
-      startAt: business?.promotion?.startAt ? String(business.promotion.startAt).slice(0, 16) : '',
-      endAt: business?.promotion?.endAt ? String(business.promotion.endAt).slice(0, 16) : '',
-    },
-    rebookSettings: {
-      requestDeadlineHours: String(business?.rebookSettings?.requestDeadlineHours ?? 24),
-      rebookIdValidityHours: String(business?.rebookSettings?.rebookIdValidityHours ?? 72),
-    },
-    cancelWindowHours: String(business?.cancelWindowHours ?? business?.cancellationPolicy?.windowHours ?? 6),
-    cancelPenaltyPercent: String(business?.cancelPenaltyPercent ?? business?.cancellationPolicy?.penaltyPercent ?? 20),
-    promotionHistory: Array.isArray(business?.promotionHistory) ? business.promotionHistory : [],
-    availabilityTable: normalizeTable(business?.availabilityTable),
-    bookingForm: {
-      title: business?.bookingForm?.title || defaultFormTitle,
-      description: business?.bookingForm?.description || '',
-      isPublished: business?.bookingForm?.isPublished !== false,
-      fields: Array.isArray(business?.bookingForm?.fields) && business.bookingForm.fields.length ? business.bookingForm.fields : defaultFields,
-    },
-    bookingMode: business?.bookingMode || 'manual',
-  };
 }
 
 export default function SellerDashboard({ tab, section = 'bookings', hideChrome = false, focusBookingId }) {
@@ -303,13 +90,11 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [marketplaceSettings, setMarketplaceSettings] = useState({ bookingMode: 'manual' });
   const [bookings, setBookings] = useState([]);
   const [services, setServices] = useState([]);
+  const [serviceCategories, setServiceCategories] = useState([]);
   const [businessEditorOpen, setBusinessEditorOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState(null);
-  const [businessForm, setBusinessForm] = useState(emptyBusinessForm);
+  const [editingOptions, setEditingOptions] = useState([]);
   const [rebookRequests, setRebookRequests] = useState([]);
-  const [savingBusiness, setSavingBusiness] = useState(false);
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [editorError, setEditorError] = useState('');
   const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
   const [viewService, setViewService] = useState(null);
   const [viewServiceLoading, setViewServiceLoading] = useState(false);
@@ -324,7 +109,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setError('');
 
     try {
-      const [overviewData, servicesList, bookingsList, financeData, payout, providers, settings] = await Promise.all([
+      const [overviewData, servicesList, bookingsList, financeData, payout, providers, settings, categoriesPayload] = await Promise.all([
         fetchSellerOverview().catch(() => ({})),
         fetchSellerServices().catch(() => []),
         fetchSellerBookings().catch(() => []),
@@ -332,6 +117,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         fetchSellerPayoutDetails().catch(() => ({})),
         fetchSellerPaymentProviders().catch(() => ({ mobileMoneyProviders: [], bankProviders: [] })),
         fetchMarketplaceSettings().catch(() => ({ bookingMode: 'manual' })),
+        fetchServiceCategories({ seller: true }).catch(() => ({ categories: [] })),
       ]);
 
       const cleanServices = (servicesList || []).filter((item) => !isDraftListing(item));
@@ -339,6 +125,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       setOverview(overviewData);
       setServices(cleanServices);
       setBookings(cleanBookings);
+      setServiceCategories(categoriesPayload.categories || []);
       setFinance(financeData);
       setPayoutDetails({
         method: String(payout?.method || 'momo').toLowerCase().includes('bank') ? 'bank' : 'momo',
@@ -542,20 +329,23 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     }
   };
 
-  const beginEditBusiness = (business) => {
+  const beginEditBusiness = async (business) => {
     setEditingBusiness(business);
-    const nextForm = formFromBusiness(business, t);
-    const serviceLevel = marketplaceSettings?.bookingMode === 'service-level';
-    nextForm.bookingModeEditable = serviceLevel;
-    if (!business) {
-      nextForm.bookingMode = serviceLevel ? 'manual' : (marketplaceSettings?.bookingMode || 'manual');
-    } else if (!serviceLevel && marketplaceSettings?.bookingMode) {
-      nextForm.bookingMode = marketplaceSettings.bookingMode;
-    }
-    setBusinessForm(nextForm);
+    setEditingOptions([]);
     setBusinessEditorOpen(true);
     setError('');
-    setEditorError('');
+    if (business?._id || business?.id) {
+      try {
+        const [details, options] = await Promise.all([
+          fetchSellerService(business._id || business.id).catch(() => business),
+          fetchSellerServiceOptions(business._id || business.id).catch(() => []),
+        ]);
+        setEditingBusiness(details);
+        setEditingOptions(options);
+      } catch {
+        setEditingOptions([]);
+      }
+    }
   };
 
   const openServiceView = async (business) => {
@@ -568,178 +358,6 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       showResult(t('common.error'), t('serviceDetails.loadFailed'), 'error');
     } finally {
       setViewServiceLoading(false);
-    }
-  };
-
-  const updateBusinessForm = (key, value) => {
-    setBusinessForm((current) => ({ ...current, [key]: value }));
-  };
-
-  const uploadPickedImages = async (assets) => {
-    const formData = new FormData();
-    assets.forEach((asset, index) => {
-      const uri = asset.uri;
-      const name = asset.fileName || `service-photo-${Date.now()}-${index}.jpg`;
-      const type = asset.mimeType || 'image/jpeg';
-      formData.append('images', { uri, name, type });
-    });
-    return uploadSellerImages(formData);
-  };
-
-  const pickBusinessImages = async () => {
-    setEditorError('');
-    const currentImages = businessForm.images.map((image) => image.trim()).filter(Boolean);
-    const remainingSlots = Math.max(0, 3 - currentImages.length);
-    if (remainingSlots <= 0) {
-      setEditorError(t('seller.photoLimitReached'));
-      return;
-    }
-
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(t('backend.permissionRequired'), t('backend.photoPermission'));
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        selectionLimit: remainingSlots,
-        quality: 0.85,
-      });
-
-      if (result.canceled || !result.assets?.length) return;
-      const tooLarge = result.assets.some((asset) => Number(asset.fileSize || 0) > 5 * 1024 * 1024);
-      if (tooLarge) {
-        setEditorError(t('seller.imageLimit'));
-        return;
-      }
-      setUploadingImages(true);
-      const uploadedUrls = await uploadPickedImages(result.assets.slice(0, remainingSlots));
-      setBusinessForm((current) => ({
-        ...current,
-        images: [...current.images.map((image) => image.trim()).filter(Boolean), ...uploadedUrls].slice(0, 3),
-      }));
-    } catch (err) {
-      setEditorError(t('backend.imageUploadFailed'));
-    } finally {
-      setUploadingImages(false);
-    }
-  };
-
-  const removeBusinessImage = (imageUrl) => {
-    setBusinessForm((current) => ({
-      ...current,
-      images: current.images.filter((image) => image !== imageUrl),
-    }));
-  };
-
-  const updateNestedForm = (section, key, value) => {
-    setBusinessForm((current) => ({
-      ...current,
-      [section]: {
-        ...current[section],
-        [key]: value,
-      },
-    }));
-  };
-
-  const updateOptionCell = (rowId, key, value) => {
-    setBusinessForm((current) => ({
-      ...current,
-      availabilityTable: {
-        ...current.availabilityTable,
-        rows: current.availabilityTable.rows.map((row) => row.id === rowId ? { ...row, cells: { ...row.cells, [key]: value } } : row),
-      },
-    }));
-  };
-
-  const addOptionRow = () => {
-    setBusinessForm((current) => ({
-      ...current,
-      availabilityTable: {
-        ...current.availabilityTable,
-        rows: [...current.availabilityTable.rows, { id: `row_${Date.now()}`, sortOrder: current.availabilityTable.rows.length + 1, cells: { service: '', price: '', priceType: 'fixed', calculationField: 'duration', durationUnit: 'days', availability: '1', requiresTime: 'yes', details: '' } }],
-      },
-    }));
-  };
-
-  const removeOptionRow = (rowId) => {
-    setBusinessForm((current) => ({
-      ...current,
-      availabilityTable: {
-        ...current.availabilityTable,
-        rows: current.availabilityTable.rows.length > 1 ? current.availabilityTable.rows.filter((row) => row.id !== rowId) : current.availabilityTable.rows,
-      },
-    }));
-  };
-
-  const updateBookingField = (fieldId, key, value) => {
-    setBusinessForm((current) => ({
-      ...current,
-      bookingForm: {
-        ...current.bookingForm,
-        fields: current.bookingForm.fields.map((field) => field.id === fieldId ? { ...field, [key]: value } : field),
-      },
-    }));
-  };
-
-  const addBookingField = () => {
-    setBusinessForm((current) => ({
-      ...current,
-      bookingForm: {
-        ...current.bookingForm,
-        fields: [
-          ...current.bookingForm.fields,
-          { id: `field_${Date.now()}`, type: 'text', label: t('seller.defaults.newQuestion'), placeholder: '', required: false, enabled: true, options: [] },
-        ],
-      },
-    }));
-  };
-
-  const removeBookingField = (fieldId) => {
-    setBusinessForm((current) => ({
-      ...current,
-      bookingForm: {
-        ...current.bookingForm,
-        fields: current.bookingForm.fields.length > 1 ? current.bookingForm.fields.filter((field) => field.id !== fieldId) : current.bookingForm.fields,
-      },
-    }));
-  };
-
-  const saveBusinessPayload = async (formToSave, businessToSave = editingBusiness) => {
-    const validationError = validateBusinessForm(formToSave, t);
-    if (validationError) throw new Error(validationError);
-    const formWithDates = {
-      ...formToSave,
-      promotion: {
-        ...formToSave.promotion,
-        startAt: normalizePromotionDate(formToSave.promotion.startAt),
-        endAt: normalizePromotionDate(formToSave.promotion.endAt, true),
-      },
-    };
-    const payload = buildServicePayload(formWithDates);
-    if (businessToSave?._id || businessToSave?.id) {
-      return updateSellerService(businessToSave._id || businessToSave.id, payload);
-    }
-    return createSellerService(payload);
-  };
-
-  const saveBusiness = async () => {
-    setSavingBusiness(true);
-    setError('');
-    setEditorError('');
-    try {
-      await saveBusinessPayload(businessForm);
-      showResult(t('common.success'), t('backend.businessSaved'));
-      setEditingBusiness(null);
-      setBusinessEditorOpen(false);
-      await loadData(true);
-    } catch (err) {
-      setEditorError(getSaveErrorMessage(err, t('backend.saveBusinessFailed')));
-    } finally {
-      setSavingBusiness(false);
     }
   };
 
@@ -770,22 +388,21 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setLoading(true);
     setError('');
     try {
-      const serviceLocation = formFromBusiness(business, t).serviceLocation;
-      const hasLocation = (serviceLocation.country && (serviceLocation.city || serviceLocation.district)) && serviceLocation.latitude && serviceLocation.longitude;
-      const hasPayout = (payoutDetails.accountNumber || business.payoutDetails?.accountNumber || business.payoutDetails?.msisdn)
-        && (payoutDetails.accountName || business.payoutDetails?.accountName);
-      const hasPriceRows = business.availabilityTable?.rows?.some((row) => row.cells?.service && row.cells?.price);
+      const location = business.location || business.serviceLocation || {};
+      const hasLocation = (location.country && (location.city || location.state || location.district))
+        && (location.latitude || location.latitudeRaw)
+        && (location.longitude || location.longitudeRaw);
+      const hasPayout = payoutDetails.accountNumber || business.payoutDetails?.accountNumber || business.payoutDetails?.msisdn;
+      const hasOptions = Array.isArray(business.options) && business.options.length > 0;
+      const hasPriceRows = business.availabilityTable?.rows?.some((row) => row.cells?.service && row.cells?.price)
+        || Number(business.basePrice) > 0
+        || hasOptions;
       if (!hasLocation || !hasPayout || !hasPriceRows) {
         beginEditBusiness(business);
         showResult(t('common.error'), t('seller.completeBeforeAvailability'), 'error');
         return;
       }
-      const nextForm = {
-        ...formFromBusiness(business, t),
-        status,
-        remainingQuantity: status === 'available' ? String(business.availableQuantity || 1) : '0',
-      };
-      await saveBusinessPayload(nextForm, business);
+      await updateSellerService(business._id || business.id, { status });
       showResult(t('common.success'), t('backend.businessUpdated'));
       await loadData(true);
     } catch (err) {
@@ -1089,7 +706,9 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
               <View style={styles.businessTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemTitle}>{item.name || item.title}</Text>
-                  <Text style={styles.itemTypeLabel}>{item.category || item.type || t('seller.service')}</Text>
+                  <Text style={styles.itemTypeLabel}>
+                    {item.category?.name || item.categoryName || item.category || item.type || t('seller.service')}
+                  </Text>
                 </View>
                 <View style={styles.remainingPill}>
                   <Text style={styles.remainingText}>{t('seller.remaining', { count: item.availableQuantity ?? item.quantityRemaining ?? 0 })}</Text>
@@ -1116,39 +735,41 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
               {item.imageReviewStatus === 'rejected' ? <Text style={styles.statusNoteDanger}>New images were rejected. Approved images remain public.</Text> : null}
               {Array.isArray(item.images) && item.images.length ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.businessImages}>
-                  {item.images.slice(0, 3).map((image, index) => (
-                    <Image key={`${image}-${index}`} source={{ uri: image }} style={styles.businessImage} />
-                  ))}
+                  {(item.primaryImage ? [item.primaryImage, ...item.images] : item.images)
+                    .filter((image, index, arr) => arr.indexOf(image) === index)
+                    .slice(0, 5)
+                    .map((image, index) => (
+                      <Image key={`${image}-${index}`} source={{ uri: typeof image === 'string' ? image : image?.url }} style={styles.businessImage} />
+                    ))}
                 </ScrollView>
               ) : null}
-              <Text style={styles.tableSummary}>{t('seller.tableSummary', { rows: item.availabilityTable?.rows?.length || 0, columns: item.availabilityTable?.columns?.length || DEFAULT_COLUMNS.length })}</Text>
+              <Text style={styles.tableSummary}>
+                {item.supportsOptions === false
+                  ? `Base price: RWF ${Number(item.basePrice || 0).toLocaleString()}`
+                  : `Options: ${item.options?.length || item.availabilityTable?.rows?.length || 0}`}
+              </Text>
             </View>
           ))}
         </View>
       </ScrollView>
 
-      <BusinessEditModal
+      <ServiceEditorModal
         visible={businessEditorOpen}
-        editingBusiness={editingBusiness}
-        form={businessForm}
-        saving={savingBusiness}
-        uploadingImages={uploadingImages}
-        error={editorError}
+        service={editingBusiness}
+        categories={serviceCategories}
+        existingOptions={editingOptions}
         onClose={() => {
           setBusinessEditorOpen(false);
           setEditingBusiness(null);
+          setEditingOptions([]);
         }}
-        onSave={saveBusiness}
-        onSet={updateBusinessForm}
-        onSetNested={updateNestedForm}
-        onOptionCell={updateOptionCell}
-        onAddOption={addOptionRow}
-        onRemoveOption={removeOptionRow}
-        onBookingField={updateBookingField}
-        onAddBookingField={addBookingField}
-        onRemoveBookingField={removeBookingField}
-        onPickImages={pickBusinessImages}
-        onRemoveImage={removeBusinessImage}
+        onSaved={async () => {
+          showResult(t('common.success'), t('backend.businessSaved'));
+          setBusinessEditorOpen(false);
+          setEditingBusiness(null);
+          setEditingOptions([]);
+          await loadData(true);
+        }}
       />
     </View>
   );
@@ -1342,248 +963,6 @@ function BookingReviewModal({ booking, form, setForm, loading, onClose, onApprov
               <Text style={styles.rejectButtonText}>Reject</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingImages, error, onClose, onSave, onSet, onSetNested, onOptionCell, onAddOption, onRemoveOption, onBookingField, onAddBookingField, onRemoveBookingField, onPickImages, onRemoveImage }) {
-  const { t } = useTranslation();
-  const categoryOptions = SERVICE_CATEGORY_OPTIONS.map(([value, labelText]) => [value, t(`seller.categories.${value}`, { defaultValue: labelText })]);
-  const priceTypeOptions = PRICE_TABLE_OPTIONS.priceType.map(([value, labelText]) => [value, t(`seller.priceTypes.${value}`, { defaultValue: labelText })]);
-  const calculationOptions = PRICE_TABLE_OPTIONS.calculationField.map(([value, labelText]) => [value, t(`seller.calculationFields.${value}`, { defaultValue: labelText })]);
-  const durationOptions = PRICE_TABLE_OPTIONS.durationUnit.map(([value, labelText]) => [value, t(`seller.durationUnits.${value}`, { defaultValue: labelText })]);
-  const fieldTypeOptions = FIELD_TYPES.map(([value, labelText]) => [value, t(`seller.fieldTypes.${value}`, { defaultValue: labelText })]);
-
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.modalScreen}>
-        <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.modalHeader}>
-            <View>
-              <Text style={styles.modalTitle}>{editingBusiness ? t('seller.editBusiness') : t('seller.addBusiness')}</Text>
-              <Text style={styles.modalSubtitle}>{t('seller.modalHelp')}</Text>
-            </View>
-            <TouchableOpacity style={styles.modalClose} onPress={onClose} activeOpacity={0.84}>
-              <Feather name="x" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-          {!!error && <Text style={styles.editorErrorText}>{error}</Text>}
-
-          <Panel title={t('seller.businessBasics')}>
-            <TextField label={t('seller.businessName')} value={form.title} onChangeText={(text) => onSet('title', text)} />
-            <ModalSelectField label={t('seller.category')} value={form.category} options={categoryOptions} onChange={(value) => onSet('category', value)} placeholder={t('seller.category')} />
-            <MultilineField label={t('seller.description')} value={form.description} onChangeText={(text) => onSet('description', text)} />
-          </Panel>
-
-          <Panel title={t('seller.serviceLocation')}>
-            <WorldLocationFields
-              value={form.serviceLocation}
-              onChange={(location) => onSet('serviceLocation', {
-                ...form.serviceLocation,
-                ...location,
-                province: location.state || location.province,
-                district: location.city || location.district,
-              })}
-            />
-            <TextField label={t('seller.fullAddress')} value={form.serviceLocation.fullAddress} onChangeText={(text) => onSetNested('serviceLocation', 'fullAddress', text)} placeholder="Street, city, country" />
-            <ServiceLocationPicker value={form.serviceLocation} onChange={(nextLocation) => onSet('serviceLocation', nextLocation)} />
-            <View style={styles.twoColumns}>
-              <NumberField allowDecimal allowNegative label={t('seller.latitude')} value={String(form.serviceLocation.latitude || '')} onChangeText={(text) => onSetNested('serviceLocation', 'latitude', text)} />
-              <NumberField allowDecimal allowNegative label={t('seller.longitude')} value={String(form.serviceLocation.longitude || '')} onChangeText={(text) => onSetNested('serviceLocation', 'longitude', text)} />
-            </View>
-          </Panel>
-
-          <Panel title={t('seller.contactPayout')}>
-            <View style={styles.twoColumns}>
-              <TextField label={t('seller.privatePhone')} value={form.contactDetails.phone} onChangeText={(text) => onSetNested('contactDetails', 'phone', text)} keyboardType="phone-pad" />
-              <TextField label={t('seller.whatsapp')} value={form.contactDetails.whatsapp} onChangeText={(text) => onSetNested('contactDetails', 'whatsapp', text)} keyboardType="phone-pad" />
-            </View>
-            <Text style={styles.uploadHint}>Payout MoMo/bank is managed under Finance → Payout (and Profile).</Text>
-          </Panel>
-
-          <Panel title={t('seller.photos')}>
-            <TouchableOpacity style={styles.uploadButton} onPress={onPickImages} disabled={uploadingImages} activeOpacity={0.84}>
-              {uploadingImages ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <>
-                  <Feather name="upload-cloud" size={18} color={colors.primary} />
-                  <Text style={styles.uploadButtonText}>{t('seller.uploadPhotos')}</Text>
-                </>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.uploadHint}>{t('seller.uploadHint')}</Text>
-            {form.images.map((image) => image.trim()).filter(Boolean).length ? (
-              <View style={styles.uploadPreviewGrid}>
-                {form.images.map((image) => image.trim()).filter(Boolean).map((image) => (
-                  <View key={image} style={styles.uploadPreviewCard}>
-                    <Image source={{ uri: image }} style={styles.uploadPreviewImage} />
-                    <TouchableOpacity style={styles.removeImageButton} onPress={() => onRemoveImage(image)} activeOpacity={0.84}>
-                      <Feather name="x" size={14} color={colors.white} />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.emptyUploadBox}>
-                <Feather name="image" size={22} color={colors.muted} />
-                <Text style={styles.emptyUploadText}>{t('seller.noPhotos')}</Text>
-              </View>
-            )}
-          </Panel>
-
-          <Panel title={t('seller.priceTable')}>
-            {form.availabilityTable.rows.map((row, index) => (
-              <View key={row.id} style={styles.optionEditor}>
-                <View style={styles.optionEditorHeader}>
-                  <Text style={styles.optionEditorTitle}>{t('seller.option', { number: index + 1 })}</Text>
-                  <TouchableOpacity onPress={() => onRemoveOption(row.id)} activeOpacity={0.84}>
-                    <Text style={styles.deleteButtonText}>{t('actions.remove')}</Text>
-                  </TouchableOpacity>
-                </View>
-                <TextField label={t('seller.optionName')} value={row.cells.service || ''} onChangeText={(text) => onOptionCell(row.id, 'service', text)} />
-                <View style={styles.twoColumns}>
-                  <NumberField label={t('seller.price')} value={String(row.cells.price || '')} onChangeText={(text) => onOptionCell(row.id, 'price', text)} />
-                  <ModalSelectField label={t('seller.priceType')} value={row.cells.priceType || ''} options={priceTypeOptions} onChange={(value) => onOptionCell(row.id, 'priceType', value)} placeholder={t('seller.priceType')} />
-                </View>
-                <View style={styles.twoColumns}>
-                  <ModalSelectField label={t('seller.calculationField')} value={row.cells.calculationField || ''} options={calculationOptions} onChange={(value) => onOptionCell(row.id, 'calculationField', value)} placeholder={t('seller.calculationField')} />
-                  <ModalSelectField label={t('seller.durationUnit')} value={row.cells.durationUnit || ''} options={durationOptions} onChange={(value) => onOptionCell(row.id, 'durationUnit', value)} placeholder={t('seller.durationUnit')} />
-                </View>
-                <View style={styles.twoColumns}>
-                  <NumberField label={t('seller.maxDuration')} value={String(row.cells.maximumDuration || '')} onChangeText={(text) => onOptionCell(row.id, 'maximumDuration', text)} />
-                  <NumberField label={t('seller.capacity')} value={String(row.cells.availability || '')} onChangeText={(text) => onOptionCell(row.id, 'availability', text)} />
-                </View>
-                <View style={styles.twoColumns}>
-                  <TextField label="Available from" value={String(row.cells.availableFrom || '')} onChangeText={(text) => onOptionCell(row.id, 'availableFrom', text)} placeholder="YYYY-MM-DD" />
-                  <TextField label="Available until" value={String(row.cells.availableTo || '')} onChangeText={(text) => onOptionCell(row.id, 'availableTo', text)} placeholder="YYYY-MM-DD" />
-                </View>
-                <TextField label="Available days" value={String(row.cells.availableDays || '')} onChangeText={(text) => onOptionCell(row.id, 'availableDays', text)} placeholder="Mon,Tue,Wed,Thu,Fri" />
-                <View style={styles.twoColumns}>
-                  <TextField label="Open time" value={String(row.cells.availableStartTime || '')} onChangeText={(text) => onOptionCell(row.id, 'availableStartTime', text)} placeholder="07:00" />
-                  <TextField label="Close time" value={String(row.cells.availableEndTime || '')} onChangeText={(text) => onOptionCell(row.id, 'availableEndTime', text)} placeholder="20:00" />
-                </View>
-                <ModalSelectField
-                  label="Times required"
-                  value={row.cells.requiresTime || 'yes'}
-                  options={[['yes', 'Yes'], ['no', 'No']]}
-                  onChange={(value) => onOptionCell(row.id, 'requiresTime', value)}
-                  searchable={false}
-                />
-                <MultilineField label={t('seller.detailsAmenities')} value={row.cells.details || ''} onChangeText={(text) => onOptionCell(row.id, 'details', text)} placeholder="Wi-Fi, breakfast, private bathroom..." />
-              </View>
-            ))}
-            <TouchableOpacity style={styles.outlineButton} onPress={onAddOption} activeOpacity={0.84}>
-              <Text style={styles.outlineButtonText}>{t('actions.addOption')}</Text>
-            </TouchableOpacity>
-          </Panel>
-
-          <Panel title={t('seller.availabilityRebook')}>
-            <ModalSelectField label={t('seller.availability')} value={form.status} options={[['available', t('seller.available')], ['unavailable', t('seller.notAvailable')], ['custom', t('seller.custom')]]} onChange={(value) => onSet('status', value)} searchable={false} />
-            {form.status === 'custom' ? (
-              <TextField label={t('seller.customAvailability')} value={form.customAvailability} onChangeText={(text) => onSet('customAvailability', text)} placeholder={t('seller.weekendsExample')} />
-            ) : (
-              <NumberField label={t('seller.remainingQuantity')} value={String(form.remainingQuantity)} onChangeText={(text) => onSet('remainingQuantity', text)} placeholder={t('seller.quantityExample')} />
-            )}
-            <View style={styles.twoColumns}>
-              <NumberField label={t('seller.deadlineHours')} value={String(form.rebookSettings.requestDeadlineHours)} onChangeText={(text) => onSetNested('rebookSettings', 'requestDeadlineHours', text)} />
-              <NumberField label={t('seller.rebookHours')} value={String(form.rebookSettings.rebookIdValidityHours)} onChangeText={(text) => onSetNested('rebookSettings', 'rebookIdValidityHours', text)} />
-            </View>
-            <View style={styles.twoColumns}>
-              <NumberField label="Cancel window (hours)" value={String(form.cancelWindowHours || '6')} onChangeText={(text) => onSet('cancelWindowHours', text)} />
-              <NumberField label="Cancel penalty (%)" value={String(form.cancelPenaltyPercent || '20')} onChangeText={(text) => onSet('cancelPenaltyPercent', text)} />
-            </View>
-            {form.bookingModeEditable ? (
-              <ModalSelectField
-                label="Booking mode"
-                value={form.bookingMode || 'manual'}
-                options={[['manual', 'Manual approval'], ['auto', 'Auto confirm']]}
-                onChange={(value) => onSet('bookingMode', value)}
-                searchable={false}
-              />
-            ) : (
-              <Text style={styles.uploadHint}>Booking mode: {form.bookingMode || 'manual'} (marketplace-controlled).</Text>
-            )}
-          </Panel>
-
-          <Panel title={t('seller.promotion')}>
-            <TouchableOpacity style={styles.checkboxLine} onPress={() => onSet('promotion', { ...form.promotion, enabled: !form.promotion.enabled })} activeOpacity={0.84}>
-              <View style={[styles.checkboxBox, form.promotion.enabled && styles.checkboxBoxActive]}>
-                {form.promotion.enabled ? <Feather name="check" size={13} color={colors.white} /> : null}
-              </View>
-              <Text style={styles.checkboxLabel}>{t('seller.usePromotionHistory')}</Text>
-            </TouchableOpacity>
-            <TextField label={t('seller.promotionTitle')} value={form.promotion.title} onChangeText={(text) => onSet('promotion', { ...form.promotion, title: text })} placeholder="Example: Happy Hours!" />
-            <NumberField label={t('seller.promotionPercent')} value={String(form.promotion.percent)} onChangeText={(text) => onSet('promotion', { ...form.promotion, percent: text })} placeholder="Example: 25" />
-            <MultilineField label={t('seller.promotionNote')} value={form.promotion.note} onChangeText={(text) => onSet('promotion', { ...form.promotion, note: text })} />
-            {form.promotion.enabled ? (
-              <View style={styles.twoColumns}>
-                <DateTimeField label={t('seller.promotionStarts')} value={form.promotion.startAt || ''} onChange={(text) => onSet('promotion', { ...form.promotion, startAt: text })} placeholder={t('seller.placeholders.dateTime')} />
-                <DateTimeField label={t('seller.promotionEnds')} value={form.promotion.endAt || ''} onChange={(text) => onSet('promotion', { ...form.promotion, endAt: text })} placeholder={t('seller.placeholders.dateTime')} />
-              </View>
-            ) : null}
-            {form.promotionHistory?.length ? (
-              <Text style={styles.uploadHint}>{t('seller.promotionHistory', { count: form.promotionHistory.length })}</Text>
-            ) : null}
-          </Panel>
-
-          <Panel title={t('seller.customerForm')}>
-            <TextField label={t('seller.formName')} value={form.bookingForm.title} onChangeText={(text) => onSet('bookingForm', { ...form.bookingForm, title: text })} />
-            <MultilineField label={t('seller.formMessage')} value={form.bookingForm.description} onChangeText={(text) => onSet('bookingForm', { ...form.bookingForm, description: text })} />
-            {form.bookingForm.fields.map((field) => (
-              <View key={field.id} style={styles.bookingFieldEditor}>
-                <View style={styles.optionEditorHeader}>
-                  <Text style={styles.optionEditorTitle}>{t('seller.customerQuestion')}</Text>
-                  <TouchableOpacity onPress={() => onRemoveBookingField(field.id)} activeOpacity={0.84}>
-                    <Text style={styles.deleteButtonText}>{t('actions.remove')}</Text>
-                  </TouchableOpacity>
-                </View>
-                <TextField label={t('seller.questionLabel')} value={field.label} onChangeText={(text) => onBookingField(field.id, 'label', text)} />
-                <View style={styles.twoColumns}>
-                  <ModalSelectField label={t('seller.answerType')} value={field.type} options={fieldTypeOptions} onChange={(value) => onBookingField(field.id, 'type', value)} placeholder={t('seller.answerType')} />
-                  <TextField label={t('seller.placeholder')} value={field.placeholder || ''} onChangeText={(text) => onBookingField(field.id, 'placeholder', text)} />
-                </View>
-                <TextField label={t('seller.helpNote')} value={field.helpText || ''} onChangeText={(text) => onBookingField(field.id, 'helpText', text)} />
-                <TextField label={t('seller.prefilled')} value={String(field.defaultValue || '')} onChangeText={(text) => onBookingField(field.id, 'defaultValue', text)} />
-                {['select', 'radio', 'checkbox'].includes(field.type) ? (
-                  <TextField label={t('seller.choices')} value={(field.options || []).join(', ')} onChangeText={(text) => onBookingField(field.id, 'options', text.split(',').map((item) => item.trim()).filter(Boolean))} placeholder={t('seller.choicesExample')} />
-                ) : null}
-                {field.type === 'file' ? (
-                  <View style={styles.twoColumns}>
-                    <TextField label={t('seller.fileTypes')} value={field.validation?.acceptedFileTypes || ''} onChangeText={(text) => onBookingField(field.id, 'validation', { ...(field.validation || {}), acceptedFileTypes: text })} placeholder={t('seller.placeholders.fileTypes')} />
-                    <NumberField label={t('seller.maxFileSize')} value={String(field.validation?.maxFileSizeMb || 5)} onChangeText={(text) => onBookingField(field.id, 'validation', { ...(field.validation || {}), maxFileSizeMb: text })} />
-                  </View>
-                ) : null}
-                {field.type === 'number' ? (
-                  <View style={styles.twoColumns}>
-                    <NumberField label={t('seller.minNumber')} value={String(field.validation?.min ?? '')} onChangeText={(text) => onBookingField(field.id, 'validation', { ...(field.validation || {}), min: text })} />
-                    <NumberField label={t('seller.maxNumber')} value={String(field.validation?.max ?? '')} onChangeText={(text) => onBookingField(field.id, 'validation', { ...(field.validation || {}), max: text })} />
-                  </View>
-                ) : null}
-                <TouchableOpacity style={styles.checkboxLine} onPress={() => onBookingField(field.id, 'required', !field.required)} activeOpacity={0.84}>
-                  <View style={[styles.checkboxBox, field.required && styles.checkboxBoxActive]}>
-                    {field.required ? <Feather name="check" size={13} color={colors.white} /> : null}
-                  </View>
-                  <Text style={styles.checkboxLabel}>{t('seller.required')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.checkboxLine} onPress={() => onBookingField(field.id, 'enabled', field.enabled === false)} activeOpacity={0.84}>
-                  <View style={[styles.checkboxBox, field.enabled !== false && styles.checkboxBoxActive]}>
-                    {field.enabled !== false ? <Feather name="check" size={13} color={colors.white} /> : null}
-                  </View>
-                  <Text style={styles.checkboxLabel}>{t('seller.showQuestion')}</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-            <TouchableOpacity style={styles.outlineButton} onPress={onAddBookingField} activeOpacity={0.84}>
-              <Text style={styles.outlineButtonText}>{t('actions.addQuestion')}</Text>
-            </TouchableOpacity>
-          </Panel>
-
-          <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.72 }]} onPress={onSave} disabled={saving} activeOpacity={0.86}>
-            {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>{editingBusiness ? t('actions.updateBusiness') : t('actions.createBusiness')}</Text>}
-          </TouchableOpacity>
         </ScrollView>
       </View>
     </Modal>
