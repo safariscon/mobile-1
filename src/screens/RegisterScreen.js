@@ -69,16 +69,14 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
             <Text style={styles.backText}>{t('common.back')}</Text>
           </TouchableOpacity>
 
-          <View style={styles.heroIcon}>
-            <Feather name="user-plus" size={24} color={colors.white} />
-          </View>
-          <Text style={styles.title}>{t('auth.register.title')}</Text>
-          <Text style={styles.subtitle}>{t('auth.register.subtitle')}</Text>
-
-          <View style={styles.accountType}>
-            <Feather name="user" size={19} color={colors.primary} />
-            <Text style={styles.accountTitle}>{t('auth.register.traveler')}</Text>
-            <Text style={styles.accountText}>{t('auth.register.travelerHelp')}</Text>
+          <View style={styles.heroRow}>
+            <View style={styles.heroIcon}>
+              <Feather name="user-plus" size={20} color={colors.white} />
+            </View>
+            <View style={styles.heroCopy}>
+              <Text style={styles.title}>{t('auth.register.title')}</Text>
+              <Text style={styles.subtitle}>{t('auth.register.subtitle')}</Text>
+            </View>
           </View>
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -100,21 +98,22 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.createAccount')}</Text>}
           </TouchableOpacity>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>{t('auth.register.hasAccount')} </Text>
-            <TouchableOpacity onPress={onNavigateToLogin} activeOpacity={0.75}>
-              <Text style={styles.linkText}>{t('common.signIn')}</Text>
+          <TouchableOpacity style={styles.switchAuthButton} onPress={onNavigateToLogin} activeOpacity={0.84}>
+            <Text style={styles.switchAuthText}>{t('auth.register.hasAccount')}</Text>
+            <Text style={styles.switchAuthLink}>{t('common.signIn')}</Text>
+            <Feather name="chevron-right" size={16} color={colors.primary} />
+          </TouchableOpacity>
+
+          <View style={styles.providerLinks}>
+            <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
+              <Feather name="briefcase" size={15} color={colors.primary} />
+              <Text style={styles.providerActionText}>Complete provider registration</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
+              <Feather name="plus-square" size={15} color={colors.primary} />
+              <Text style={styles.providerActionText}>Register a business</Text>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
-            <Feather name="briefcase" size={16} color={colors.primary} />
-            <Text style={styles.providerActionText}>Complete provider registration</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
-            <Feather name="plus-square" size={16} color={colors.primary} />
-            <Text style={styles.providerActionText}>Register a business</Text>
-          </TouchableOpacity>
           <PolicyLinks compact />
         </View>
       </ScrollView>
@@ -152,9 +151,9 @@ const createStyles = (colors) => StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 28,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   page: {
     flexGrow: 1,
@@ -164,79 +163,58 @@ const createStyles = (colors) => StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 5,
-    marginBottom: 18,
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  heroRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
   },
   heroIcon: {
     alignItems: 'center',
-    alignSelf: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 18,
-    height: 56,
+    borderRadius: 14,
+    height: 44,
     justifyContent: 'center',
-    marginBottom: 14,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    width: 56,
-    elevation: 5,
+    width: 44,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   backText: {
     color: colors.primary,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
   },
   title: {
-    color: colors.text,
     color: colors.textStrong,
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '900',
-    textAlign: 'center',
   },
   subtitle: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 22,
-    marginTop: 7,
-    textAlign: 'center',
-  },
-  accountType: {
-    alignItems: 'center',
-    backgroundColor: colors.infoSurface,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 12,
-    padding: 14,
-  },
-  accountTitle: {
-    color: colors.primary,
     fontSize: 13,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  accountText: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 5,
+    lineHeight: 18,
+    marginTop: 2,
   },
   inputGroup: {
-    marginBottom: 13,
+    marginBottom: 10,
   },
   label: {
     color: colors.text,
     fontSize: 12,
     fontWeight: '900',
-    marginBottom: 7,
+    marginBottom: 5,
   },
   input: {
     ...baseInputStyle(colors),
     borderRadius: 12,
     borderWidth: 1,
     fontSize: 15,
-    height: 52,
+    height: 48,
     paddingHorizontal: 14,
   },
   passwordBox: {
@@ -246,7 +224,7 @@ const createStyles = (colors) => StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 52,
+    height: 48,
     overflow: 'hidden',
   },
   passwordInput: {
@@ -261,7 +239,7 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: 'transparent',
     borderLeftColor: colors.border,
     borderLeftWidth: 1,
-    height: 52,
+    height: 48,
     justifyContent: 'center',
     width: 48,
   },
@@ -269,9 +247,9 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.primary,
     borderRadius: 12,
-    height: 52,
+    height: 48,
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.72,
@@ -282,10 +260,11 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '900',
   },
   checkbox: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flexDirection: 'row',
     gap: 10,
-    marginTop: 14,
+    marginBottom: 2,
+    marginTop: 4,
   },
   box: {
     alignItems: 'center',
@@ -294,6 +273,7 @@ const createStyles = (colors) => StyleSheet.create({
     borderWidth: 1,
     height: 22,
     justifyContent: 'center',
+    marginTop: 1,
     width: 22,
   },
   boxActive: {
@@ -307,27 +287,38 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
   },
-  footer: {
+  switchAuthButton: {
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
     flexDirection: 'row',
+    gap: 6,
     justifyContent: 'center',
-    marginTop: 22,
+    marginTop: 14,
+    minHeight: 48,
+    paddingHorizontal: 14,
   },
-  footerText: {
+  switchAuthText: {
     color: colors.text,
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '700',
   },
-  linkText: {
+  switchAuthLink: {
     color: colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  providerLinks: {
+    gap: 2,
+    marginTop: 8,
   },
   providerAction: {
     alignItems: 'center',
     alignSelf: 'center',
     flexDirection: 'row',
     gap: 7,
-    marginTop: 16,
     paddingVertical: 8,
   },
   providerActionText: {
@@ -340,13 +331,11 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 8,
-    textAlign: 'center',
   },
   successText: {
     color: colors.success,
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 8,
-    textAlign: 'center',
   },
 });

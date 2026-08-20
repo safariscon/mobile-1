@@ -8,10 +8,30 @@ import { useAppDialog } from '../components/AppDialog';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import ServiceDetailsView from '../components/ServiceDetailsView';
 import ServiceLocationPicker from '../components/ServiceLocationPicker';
-import { fetchSellerServiceDetails } from '../api/services';
-import { normalizeServiceDetail } from '../lib/serviceMapper';
 import WorldLocationFields from '../components/WorldLocationFields';
-import { apiFetch } from '../config/api';
+import {
+  buildServicePayload,
+  completeVerifiedSellerBooking,
+  confirmRebookUnavailable,
+  createSellerService,
+  deleteSellerService,
+  fetchSellerBookings,
+  fetchSellerFinance,
+  fetchSellerOverview,
+  fetchSellerPaymentProviders,
+  fetchSellerPayoutDetails,
+  fetchSellerRebookRequests,
+  fetchSellerService,
+  fetchSellerServices,
+  lookupSellerBookingVerification,
+  saveSellerPayoutDetails,
+  updateSellerBookingStatus,
+  updateSellerService,
+  uploadSellerImages,
+  verifySellerBookingCode,
+} from '../api/seller';
+import { fetchMarketplaceSettings } from '../api/services';
+import { normalizeServiceDetail } from '../lib/serviceMapper';
 import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
@@ -31,6 +51,12 @@ const DEFAULT_COLUMNS = [
   { id: 'durationUnit', label: 'Duration unit' },
   { id: 'maximumDuration', label: 'Maximum duration' },
   { id: 'availability', label: 'Availability / capacity' },
+  { id: 'availableFrom', label: 'Available from' },
+  { id: 'availableTo', label: 'Available until' },
+  { id: 'availableDays', label: 'Available days' },
+  { id: 'availableStartTime', label: 'Open time' },
+  { id: 'availableEndTime', label: 'Close time' },
+  { id: 'requiresTime', label: 'Times required' },
   { id: 'details', label: 'Details / amenities' },
 ];
 
@@ -74,9 +100,9 @@ const emptyBusinessForm = {
   title: '',
   category: 'hotel-rooms',
   description: '',
-  serviceLocation: { country: '', countryCode: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', fullAddress: '', latitude: '', longitude: '', locationSource: 'map_click', isExactLocationVerified: false },
-  locationDetails: { country: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '' },
-  payoutDetails: { method: 'mobile-money', accountName: '', accountNumber: '', instructions: '' },
+  serviceLocation: { country: '', countryCode: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', street: '', fullAddress: '', formattedAddress: '', latitude: '', longitude: '', locationSource: 'map_click', isExactLocationVerified: false },
+  locationDetails: { country: '', state: '', city: '', province: '', district: '', sector: '', cell: '', village: '', street: '' },
+  payoutDetails: { method: 'momo', providerId: 'mtn', accountName: '', accountNumber: '', instructions: '' },
   contactDetails: { phone: '', whatsapp: '' },
   status: 'available',
   customAvailability: '',
@@ -86,9 +112,11 @@ const emptyBusinessForm = {
   promotion: { enabled: false, title: '', percent: '', note: '', startAt: '', endAt: '' },
   promotionHistory: [],
   rebookSettings: { requestDeadlineHours: '24', rebookIdValidityHours: '72' },
+  cancelWindowHours: '6',
+  cancelPenaltyPercent: '20',
   availabilityTable: {
     columns: DEFAULT_COLUMNS,
-    rows: [{ id: 'row_1', cells: { service: '', price: '' } }],
+    rows: [{ id: 'row_1', sortOrder: 1, cells: { service: '', price: '' } }],
   },
   bookingMode: 'manual',
   bookingForm: {
@@ -103,7 +131,11 @@ function normalizeTable(table) {
   return {
     columns: DEFAULT_COLUMNS,
     rows: Array.isArray(table?.rows) && table.rows.length
-      ? table.rows.map((row, index) => ({ id: row.id || `row_${index + 1}`, cells: { ...(row.cells || {}) } }))
+      ? table.rows.map((row, index) => ({
+          id: row.id || `row_${index + 1}`,
+          sortOrder: row.sortOrder ?? index + 1,
+          cells: { ...(row.cells || {}) },
+        }))
       : emptyBusinessForm.availabilityTable.rows,
   };
 }
@@ -122,37 +154,9 @@ function addDays(days) {
   return toDateInputValue(date);
 }
 
-async function readApiJson(response) {
-  try {
-    return await response.json();
-  } catch (_error) {
-    return {};
-  }
-}
-
-async function apiFetchFirst(paths, options) {
-  let lastResponse = null;
-  for (const path of paths) {
-    const response = await apiFetch(path, options);
-    lastResponse = response;
-    if (response.ok || ![404, 405].includes(response.status)) return response;
-  }
-  return lastResponse;
-}
-
 function getSaveErrorMessage(error, fallback) {
   const message = String(error?.message || '').trim();
   return message || fallback;
-}
-
-function isEditableBusinessListing(item) {
-  return Boolean(
-    item?.approvalStatus ||
-    item?.verificationStatus ||
-    item?.availabilityTable ||
-    item?.payoutDetails ||
-    item?.serviceLocation
-  );
 }
 
 function normalizePromotionDate(value, endOfDay = false) {
@@ -173,8 +177,8 @@ function validateBusinessForm(form, t) {
   if (form.status === 'available' && (!form.serviceLocation.latitude || !form.serviceLocation.longitude)) {
     return 'Exact map coordinates are required before a service can be available.';
   }
-  if (!form.payoutDetails.accountName.trim() || !form.payoutDetails.accountNumber.trim()) {
-    return t('seller.validation.payoutRequired');
+  if (!form.contactDetails?.phone?.trim()) {
+    return t('seller.validation.phoneRequired', { defaultValue: 'Contact phone is required.' });
   }
   const hasPriceRow = form.availabilityTable.rows.some((row) => String(row.cells?.service || '').trim() && String(row.cells?.price || '').trim());
   if (!hasPriceRow) return t('seller.validation.priceRequired');
@@ -210,12 +214,20 @@ function formFromBusiness(business, t) {
       sector: sourceLocation.sector || legacyLocation.sector || '',
       cell: sourceLocation.cell || legacyLocation.cell || '',
       village: sourceLocation.village || legacyLocation.village || '',
+      street: sourceLocation.street || legacyLocation.street || '',
       fullAddress: sourceLocation.fullAddress || business?.contactDetails?.exactAddress || business?.location || '',
+      formattedAddress: sourceLocation.formattedAddress || sourceLocation.fullAddress || '',
       latitude: sourceLocation.latitude ?? business?.contactDetails?.latitude ?? '',
       longitude: sourceLocation.longitude ?? business?.contactDetails?.longitude ?? '',
     },
     locationDetails: { ...emptyBusinessForm.locationDetails, ...legacyLocation },
-    payoutDetails: { ...emptyBusinessForm.payoutDetails, ...(business?.payoutDetails || {}) },
+    payoutDetails: {
+      ...emptyBusinessForm.payoutDetails,
+      ...(business?.payoutDetails || {}),
+      method: String(business?.payoutDetails?.method || 'momo').toLowerCase().includes('bank') ? 'bank' : 'momo',
+      providerId: business?.payoutDetails?.providerId || 'mtn',
+      accountNumber: business?.payoutDetails?.accountNumber || business?.payoutDetails?.msisdn || '',
+    },
     contactDetails: { ...emptyBusinessForm.contactDetails, ...(business?.contactDetails || {}) },
     status: business?.status === 'unavailable' ? 'unavailable' : business?.availabilityText ? 'custom' : 'available',
     customAvailability: business?.availabilityText || '',
@@ -234,6 +246,8 @@ function formFromBusiness(business, t) {
       requestDeadlineHours: String(business?.rebookSettings?.requestDeadlineHours ?? 24),
       rebookIdValidityHours: String(business?.rebookSettings?.rebookIdValidityHours ?? 72),
     },
+    cancelWindowHours: String(business?.cancelWindowHours ?? business?.cancellationPolicy?.windowHours ?? 6),
+    cancelPenaltyPercent: String(business?.cancelPenaltyPercent ?? business?.cancellationPolicy?.penaltyPercent ?? 20),
     promotionHistory: Array.isArray(business?.promotionHistory) ? business.promotionHistory : [],
     availabilityTable: normalizeTable(business?.availabilityTable),
     bookingForm: {
@@ -265,8 +279,30 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [verifyLoading, setVerifyLoading] = useState(false);
 
   // Stats overview states
-  const [stats, setStats] = useState({ totalBookings: 0, totalRevenue: 0, activeBookings: 0, businesses: 0, activeBusinesses: 0, listings: 0 });
+  const [stats, setStats] = useState({
+    totalBookings: 0,
+    totalRevenue: 0,
+    activeBookings: 0,
+    completedBookings: 0,
+    cancellationRate: 0,
+    lowAvailability: 0,
+    pendingServices: 0,
+    approvedServices: 0,
+    businesses: 0,
+    activeBusinesses: 0,
+    listings: 0,
+    heldPayout: 0,
+    failedPayout: 0,
+    pendingPayout: 0,
+  });
   const [overview, setOverview] = useState(null);
+  const [finance, setFinance] = useState({ summary: {}, transactions: [] });
+  const [payoutDetails, setPayoutDetails] = useState({ method: 'momo', providerId: 'mtn', accountName: '', accountNumber: '' });
+  const [payoutProviders, setPayoutProviders] = useState({ mobileMoneyProviders: [], bankProviders: [] });
+  const [savingPayout, setSavingPayout] = useState(false);
+  const [marketplaceSettings, setMarketplaceSettings] = useState({ bookingMode: 'manual' });
+  const [bookings, setBookings] = useState([]);
+  const [services, setServices] = useState([]);
   const [businessEditorOpen, setBusinessEditorOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState(null);
   const [businessForm, setBusinessForm] = useState(emptyBusinessForm);
@@ -277,6 +313,9 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
   const [viewService, setViewService] = useState(null);
   const [viewServiceLoading, setViewServiceLoading] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [reviewBooking, setReviewBooking] = useState(null);
+  const [reviewForm, setReviewForm] = useState({ totalPrice: '', paymentDeadlineHours: '24', paymentReason: 'Approved service payment', note: '', reason: '' });
   const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
 
   const loadData = useCallback(async (silent = false) => {
@@ -285,63 +324,67 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setError('');
 
     try {
-      if (tab === 'bookings' || tab === 'analytics') {
-        const response = await apiFetch('/hotel/bookings?page=1&limit=20', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const resData = await response.json();
-        if (response.ok) {
-          const list = Array.isArray(resData) ? resData : resData.bookings || resData.items || [];
-          setData(list);
+      const [overviewData, servicesList, bookingsList, financeData, payout, providers, settings] = await Promise.all([
+        fetchSellerOverview().catch(() => ({})),
+        fetchSellerServices().catch(() => []),
+        fetchSellerBookings().catch(() => []),
+        fetchSellerFinance().catch(() => ({ summary: {}, transactions: [] })),
+        fetchSellerPayoutDetails().catch(() => ({})),
+        fetchSellerPaymentProviders().catch(() => ({ mobileMoneyProviders: [], bankProviders: [] })),
+        fetchMarketplaceSettings().catch(() => ({ bookingMode: 'manual' })),
+      ]);
 
-          const completedBookings = list.filter(b => b.paymentStatus === 'completed' || b.status === 'completed');
-          const revenue = completedBookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
-          setStats((current) => ({
-            ...current,
-            totalBookings: list.length,
-            totalRevenue: revenue,
-            activeBookings: list.filter(b => b.status === 'pending' || b.status === 'confirmed').length
-          }));
-        } else if (tab === 'bookings') {
-          throw new Error(t('backend.sellerBookingsFailed'));
-        }
+      const cleanServices = (servicesList || []).filter((item) => !isDraftListing(item));
+      const cleanBookings = bookingsList || [];
+      setOverview(overviewData);
+      setServices(cleanServices);
+      setBookings(cleanBookings);
+      setFinance(financeData);
+      setPayoutDetails({
+        method: String(payout?.method || 'momo').toLowerCase().includes('bank') ? 'bank' : 'momo',
+        providerId: payout?.providerId || 'mtn',
+        accountName: payout?.accountName || '',
+        accountNumber: payout?.accountNumber || payout?.msisdn || '',
+      });
+      setPayoutProviders(providers);
+      setMarketplaceSettings(settings || { bookingMode: 'manual' });
+
+      if (tab === 'bookings' || tab === 'analytics') setData(cleanBookings);
+      if (tab === 'catalog' || tab === 'finance' || tab === 'analytics') {
+        if (tab !== 'bookings') setData(cleanServices);
       }
       if (tab === 'bookings' && (section === 'rebook' || !section)) {
-        const response = await apiFetch('/rebook/seller?page=1', { headers: { 'Authorization': `Bearer ${token}` } });
-        const resData = await response.json();
-        if (response.ok) setRebookRequests(resData.requests || []);
+        const requests = await fetchSellerRebookRequests().catch(() => []);
+        setRebookRequests(requests);
       }
-      if (tab === 'catalog' || tab === 'analytics' || tab === 'finance') {
-        const [overviewResponse, servicesResponse] = await Promise.all([
-          apiFetch('/hotel/overview', { headers: { 'Authorization': `Bearer ${token}` } }),
-          apiFetch('/hotel/services?page=1&limit=20', { headers: { 'Authorization': `Bearer ${token}` } }),
-        ]);
-        const overviewData = await overviewResponse.json();
-        const servicesData = await servicesResponse.json();
-        if (!overviewResponse.ok) throw new Error(t('backend.sellerOverviewFailed'));
-        if (!servicesResponse.ok) throw new Error(t('backend.sellerBusinessesFailed'));
-        const services = (Array.isArray(servicesData) ? servicesData : servicesData.services || servicesData.items || []).filter((item) => !isDraftListing(item));
-        const businesses = (Array.isArray(overviewData.businesses)
-          ? overviewData.businesses
-          : services.filter(isEditableBusinessListing)).filter((item) => !isDraftListing(item));
-        setOverview(overviewData);
-        if (tab !== 'bookings') setData(businesses);
-        setStats((current) => ({
-          ...current,
-          totalBookings: overviewData.stats?.bookings || current.totalBookings || 0,
-          totalRevenue: overviewData.stats?.earnings || current.totalRevenue || 0,
-          businesses: businesses.length,
-          activeBusinesses: businesses.filter((item) => item.status === 'available').length,
-          listings: overviewData.stats?.services || services.length,
-        }));
-      }
+
+      const completed = cleanBookings.filter((b) => b.status === 'completed' || b.paymentStatus === 'completed' || b.paymentStatus === 'paid');
+      const cancelled = cleanBookings.filter((b) => String(b.status || '').includes('cancel'));
+      const active = cleanBookings.filter((b) => ['pending', 'reviewing', 'requested', 'confirmed'].includes(String(b.status || '').toLowerCase()));
+      const summary = financeData.summary || {};
+      setStats({
+        totalBookings: overviewData?.stats?.bookings || cleanBookings.length,
+        totalRevenue: overviewData?.stats?.earnings || summary.grossCollected || 0,
+        activeBookings: overviewData?.stats?.activeBookings || active.length,
+        completedBookings: completed.length,
+        cancellationRate: cleanBookings.length ? Math.round((cancelled.length / cleanBookings.length) * 100) : 0,
+        lowAvailability: cleanServices.filter((item) => Number(item.availableQuantity ?? item.quantityRemaining ?? 0) <= 1).length,
+        pendingServices: cleanServices.filter((item) => String(item.approvalStatus || item.status || '').includes('pending')).length,
+        approvedServices: cleanServices.filter((item) => ['approved', 'available'].includes(String(item.approvalStatus || item.status || ''))).length,
+        businesses: cleanServices.length,
+        activeBusinesses: cleanServices.filter((item) => item.status === 'available').length,
+        listings: overviewData?.stats?.services || cleanServices.length,
+        heldPayout: summary.heldPayout || summary.pendingPayout || overviewData?.stats?.pendingPayout || overviewData?.stats?.heldPayout || 0,
+        failedPayout: summary.failedPayout || 0,
+        pendingPayout: summary.pendingPayout || overviewData?.stats?.pendingPayout || 0,
+      });
     } catch (err) {
-      showResult(t('common.error'), t('customerBookings.loadFailed'), 'error');
+      showResult(t('common.error'), err.message || t('customerBookings.loadFailed'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAuthenticated, section, showResult, t, tab, token]);
+  }, [isAuthenticated, section, showResult, t, tab]);
 
   useEffect(() => {
     loadData();
@@ -352,6 +395,15 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       setVerifySuccess('');
     }
   }, [tab, section, loadData]);
+
+  useEffect(() => {
+    if (!focusBookingId || !bookings.length) return;
+    const match = bookings.find((item) => String(item._id || item.id) === String(focusBookingId));
+    if (!match) return;
+    const status = String(match.status || '').toLowerCase();
+    if (['pending', 'reviewing', 'requested'].includes(status)) openBookingReview(match);
+    else setSelectedBooking(match);
+  }, [focusBookingId, bookings]);
 
   const realtimeRooms = useMemo(() => realtimeUserRooms(user, { business: true }), [user]);
   const refreshFromRealtime = useCallback(() => {
@@ -369,57 +421,93 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     loadData(true);
   };
 
-  const handleUpdateStatus = async (bookingId, newStatus) => {
+  const handleUpdateStatus = async (bookingId, body) => {
     setLoading(true);
     try {
-      const response = await apiFetch(`/hotel/bookings/${bookingId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(t('backend.statusUpdateFailed'));
-      }
-
-      loadData(true);
+      await updateSellerBookingStatus(bookingId, body);
+      showResult(t('common.success'), 'Booking updated.');
+      setReviewBooking(null);
+      setSelectedBooking(null);
+      await loadData(true);
     } catch (err) {
-      showResult(t('common.error'), t('backend.statusUpdateFailed'), 'error');
+      showResult(t('common.error'), err.message || t('backend.statusUpdateFailed'), 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const openBookingReview = (booking) => {
+    setReviewBooking(booking);
+    setReviewForm({
+      totalPrice: String(booking.totalPrice || booking.bookingDetails?.listedPriceRwf || ''),
+      paymentDeadlineHours: String(booking.paymentDeadlineHours || 24),
+      paymentReason: booking.paymentReason || 'Approved service payment',
+      note: '',
+      reason: '',
+    });
+  };
+
+  const approveReviewedBooking = () => {
+    if (!reviewBooking) return;
+    const totalPrice = Number(reviewForm.totalPrice);
+    if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
+      showResult(t('common.error'), 'Enter a valid final price in RWF.', 'error');
+      return;
+    }
+    handleUpdateStatus(reviewBooking._id || reviewBooking.id, {
+      status: 'confirmed',
+      totalPrice,
+      paymentDeadlineHours: Number(reviewForm.paymentDeadlineHours) || 24,
+      paymentReason: reviewForm.paymentReason || 'Approved service payment',
+      note: reviewForm.note || undefined,
+    });
+  };
+
+  const rejectReviewedBooking = () => {
+    if (!reviewBooking) return;
+    if (!String(reviewForm.reason || '').trim()) {
+      showResult(t('common.error'), 'Rejection reason is required.', 'error');
+      return;
+    }
+    handleUpdateStatus(reviewBooking._id || reviewBooking.id, {
+      status: 'cancelled',
+      reason: reviewForm.reason.trim(),
+    });
+  };
+
+  const cancelConfirmedBooking = (booking) => {
+    askConfirm({
+      title: 'Cancel this booking?',
+      message: 'The confirmed booking will be cancelled.',
+      confirmLabel: t('common.cancel'),
+      destructive: true,
+      onConfirm: () => {
+        closeDialog();
+        handleUpdateStatus(booking._id || booking.id, { status: 'cancelled' });
+      },
+    });
+  };
+
   const handleVerifyCode = async () => {
-    if (!verificationCode) return;
+    const lookup = String(verificationCode || '').trim();
+    if (!lookup) return;
     setVerifyLoading(true);
     setVerifyError('');
     setVerifySuccess('');
     setVerifiedBooking(null);
 
     try {
-      const response = await apiFetchFirst(['/seller/bookings/verify-code', '/hotel/bookings/verify-code'], {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ code: verificationCode }),
-      });
-
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(t('backend.invalidCode'));
+      let booking;
+      if (lookup.includes('/verify/') || lookup.length > 24) {
+        const tokenPart = lookup.includes('/verify/') ? lookup.split('/verify/').pop() : lookup;
+        booking = await lookupSellerBookingVerification(tokenPart);
+      } else {
+        booking = await verifySellerBookingCode(lookup);
       }
-
-      setVerifiedBooking(resData.booking || resData);
+      setVerifiedBooking(booking);
       showResult(t('common.success'), t('seller.verifyValid'));
     } catch (err) {
-      showResult(t('common.error'), t('backend.invalidCode'), 'error');
+      showResult(t('common.error'), err.message || t('backend.invalidCode'), 'error');
     } finally {
       setVerifyLoading(false);
     }
@@ -428,33 +516,17 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const handleCompleteStay = async () => {
     if (!verifiedBooking) return;
     setVerifyLoading(true);
-    setVerifyError('');
-    setVerifySuccess('');
-
     try {
-      const response = await apiFetchFirst(['/seller/bookings/complete-verified', '/hotel/bookings/complete-verified'], {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          bookingId: verifiedBooking._id || verifiedBooking.id,
-          code: verificationCode,
-          confirmRemainingPaid: true,
-        }),
+      await completeVerifiedSellerBooking({
+        bookingId: verifiedBooking.bookingId || verifiedBooking._id || verifiedBooking.id,
+        code: verificationCode.includes('/verify/') ? verificationCode.split('/verify/').pop() : verificationCode,
       });
-
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(t('backend.checkInFailed'));
-      }
-
       showResult(t('common.success'), t('seller.checkInDone'));
       setVerifiedBooking(null);
       setVerificationCode('');
+      await loadData(true);
     } catch (err) {
-      showResult(t('common.error'), t('backend.checkInFailed'), 'error');
+      showResult(t('common.error'), err.message || t('backend.checkInFailed'), 'error');
     } finally {
       setVerifyLoading(false);
     }
@@ -462,21 +534,25 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
 
   const confirmUnavailable = async (requestId) => {
     try {
-      const response = await apiFetch(`/rebook/${requestId}/confirm-unavailable`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error(t('backend.actionFailed'));
+      await confirmRebookUnavailable(requestId);
       showResult(t('common.success'), 'Request updated.');
       loadData(true);
-    } catch {
-      showResult(t('common.error'), t('customerBookings.loadFailed'), 'error');
+    } catch (err) {
+      showResult(t('common.error'), err.message || t('customerBookings.loadFailed'), 'error');
     }
   };
 
   const beginEditBusiness = (business) => {
     setEditingBusiness(business);
-    setBusinessForm(formFromBusiness(business, t));
+    const nextForm = formFromBusiness(business, t);
+    const serviceLevel = marketplaceSettings?.bookingMode === 'service-level';
+    nextForm.bookingModeEditable = serviceLevel;
+    if (!business) {
+      nextForm.bookingMode = serviceLevel ? 'manual' : (marketplaceSettings?.bookingMode || 'manual');
+    } else if (!serviceLevel && marketplaceSettings?.bookingMode) {
+      nextForm.bookingMode = marketplaceSettings.bookingMode;
+    }
+    setBusinessForm(nextForm);
     setBusinessEditorOpen(true);
     setError('');
     setEditorError('');
@@ -486,8 +562,8 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setViewService(normalizeServiceDetail(business));
     setViewServiceLoading(true);
     try {
-      const details = await fetchSellerServiceDetails(business._id || business.id, token);
-      setViewService(details);
+      const details = await fetchSellerService(business._id || business.id);
+      setViewService(normalizeServiceDetail(details));
     } catch {
       showResult(t('common.error'), t('serviceDetails.loadFailed'), 'error');
     } finally {
@@ -503,21 +579,11 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     const formData = new FormData();
     assets.forEach((asset, index) => {
       const uri = asset.uri;
-      const name = asset.fileName || `business-photo-${Date.now()}-${index}.jpg`;
+      const name = asset.fileName || `service-photo-${Date.now()}-${index}.jpg`;
       const type = asset.mimeType || 'image/jpeg';
       formData.append('images', { uri, name, type });
     });
-
-    const response = await apiFetch('/hotel/uploads/images', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(t('backend.imageUploadFailed'));
-    return data.urls || [];
+    return uploadSellerImages(formData);
   };
 
   const pickBusinessImages = async () => {
@@ -594,7 +660,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       ...current,
       availabilityTable: {
         ...current.availabilityTable,
-        rows: [...current.availabilityTable.rows, { id: `row_${Date.now()}`, cells: { service: '', price: '', priceType: 'fixed', durationUnit: 'day', availability: '1', details: '' } }],
+        rows: [...current.availabilityTable.rows, { id: `row_${Date.now()}`, sortOrder: current.availabilityTable.rows.length + 1, cells: { service: '', price: '', priceType: 'fixed', calculationField: 'duration', durationUnit: 'days', availability: '1', requiresTime: 'yes', details: '' } }],
       },
     }));
   };
@@ -645,63 +711,19 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const saveBusinessPayload = async (formToSave, businessToSave = editingBusiness) => {
     const validationError = validateBusinessForm(formToSave, t);
     if (validationError) throw new Error(validationError);
-    const imageUrls = formToSave.images.map((image) => image.trim()).filter(Boolean).slice(0, 3);
-    const normalizedStatus = formToSave.status === 'unavailable' ? 'unavailable' : 'available';
-    const availabilityText = formToSave.status === 'custom' ? formToSave.customAvailability : formToSave.remainingQuantity;
-    const quantityMatch = String(formToSave.remainingQuantity || formToSave.customAvailability || '').replace(/,/g, '').match(/\d+(\.\d+)?/);
-    const locationDetails = {
-      country: formToSave.serviceLocation.country,
-      state: formToSave.serviceLocation.state || formToSave.serviceLocation.province,
-      city: formToSave.serviceLocation.city || formToSave.serviceLocation.district,
-      province: formToSave.serviceLocation.state || formToSave.serviceLocation.province,
-      district: formToSave.serviceLocation.city || formToSave.serviceLocation.district,
-      sector: formToSave.serviceLocation.sector,
-      cell: formToSave.serviceLocation.cell,
-      village: formToSave.serviceLocation.village,
-    };
-    const payload = {
-      title: formToSave.title,
-      description: formToSave.description,
-      category: formToSave.category,
-      serviceLocation: formToSave.serviceLocation,
-      locationDetails,
-      payoutDetails: formToSave.payoutDetails,
-      contactDetails: formToSave.contactDetails,
-      serviceType: 'rental',
-      pricing: { amount: 0, unit: 'service', currency: 'RWF' },
-      priceText: '',
-      availableQuantity: quantityMatch ? Number(quantityMatch[0]) : normalizedStatus === 'available' ? 1 : 0,
-      availabilityText,
-      status: normalizedStatus,
-      images: imageUrls,
+    const formWithDates = {
+      ...formToSave,
       promotion: {
         ...formToSave.promotion,
-        percent: Number(formToSave.promotion.percent) || 0,
         startAt: normalizePromotionDate(formToSave.promotion.startAt),
         endAt: normalizePromotionDate(formToSave.promotion.endAt, true),
       },
-      rebookSettings: {
-        requestDeadlineHours: Number(formToSave.rebookSettings.requestDeadlineHours) || 24,
-        rebookIdValidityHours: Number(formToSave.rebookSettings.rebookIdValidityHours) || 72,
-      },
-      availabilityTable: formToSave.availabilityTable,
-      bookingForm: formToSave.bookingForm,
-      isActive: true,
     };
-    const endpoint = businessToSave?._id ? `/hotel/services/${businessToSave._id}` : '/hotel/services';
-    const response = await apiFetch(endpoint, {
-      method: businessToSave?._id ? 'PUT' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    const resData = await readApiJson(response);
-    if (!response.ok) {
-      throw new Error(resData.message || resData.error || t('backend.saveBusinessFailed'));
+    const payload = buildServicePayload(formWithDates);
+    if (businessToSave?._id || businessToSave?.id) {
+      return updateSellerService(businessToSave._id || businessToSave.id, payload);
     }
-    return resData;
+    return createSellerService(payload);
   };
 
   const saveBusiness = async () => {
@@ -709,7 +731,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setError('');
     setEditorError('');
     try {
-      const resData = await saveBusinessPayload(businessForm);
+      await saveBusinessPayload(businessForm);
       showResult(t('common.success'), t('backend.businessSaved'));
       setEditingBusiness(null);
       setBusinessEditorOpen(false);
@@ -732,12 +754,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         setLoading(true);
         setError('');
         try {
-          const response = await apiFetch(`/hotel/services/${business._id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          const resData = await readApiJson(response);
-          if (!response.ok) throw new Error(resData.message || resData.error || t('backend.deleteBusinessFailed'));
+          await deleteSellerService(business._id || business.id);
           showResult(t('common.success'), t('backend.businessDeleted'));
           await loadData(true);
         } catch (err) {
@@ -755,14 +772,19 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     try {
       const serviceLocation = formFromBusiness(business, t).serviceLocation;
       const hasLocation = (serviceLocation.country && (serviceLocation.city || serviceLocation.district)) && serviceLocation.latitude && serviceLocation.longitude;
-      const hasPayout = business.payoutDetails?.accountName && business.payoutDetails?.accountNumber;
+      const hasPayout = (payoutDetails.accountNumber || business.payoutDetails?.accountNumber || business.payoutDetails?.msisdn)
+        && (payoutDetails.accountName || business.payoutDetails?.accountName);
       const hasPriceRows = business.availabilityTable?.rows?.some((row) => row.cells?.service && row.cells?.price);
       if (!hasLocation || !hasPayout || !hasPriceRows) {
         beginEditBusiness(business);
         showResult(t('common.error'), t('seller.completeBeforeAvailability'), 'error');
         return;
       }
-      const nextForm = { ...formFromBusiness(business, t), status, remainingQuantity: status === 'available' ? String(business.availableQuantity || 1) : '0' };
+      const nextForm = {
+        ...formFromBusiness(business, t),
+        status,
+        remainingQuantity: status === 'available' ? String(business.availableQuantity || 1) : '0',
+      };
       await saveBusinessPayload(nextForm, business);
       showResult(t('common.success'), t('backend.businessUpdated'));
       await loadData(true);
@@ -774,7 +796,40 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     }
   };
 
-  const renderBookings = () => (
+  const savePayoutAccount = async () => {
+    if (!payoutDetails.accountName.trim() || !payoutDetails.accountNumber.trim()) {
+      showResult(t('common.error'), t('seller.validation.payoutRequired'), 'error');
+      return;
+    }
+    setSavingPayout(true);
+    try {
+      const method = payoutDetails.method === 'bank' ? 'bank' : 'momo';
+      const saved = await saveSellerPayoutDetails({
+        method,
+        providerId: payoutDetails.providerId || (method === 'bank' ? 'equity' : 'mtn'),
+        accountName: payoutDetails.accountName.trim(),
+        accountNumber: payoutDetails.accountNumber.trim(),
+        ...(method === 'momo' ? { msisdn: payoutDetails.accountNumber.trim() } : {}),
+      });
+      setPayoutDetails({
+        method: String(saved?.method || method).includes('bank') ? 'bank' : 'momo',
+        providerId: saved?.providerId || payoutDetails.providerId,
+        accountName: saved?.accountName || payoutDetails.accountName,
+        accountNumber: saved?.accountNumber || saved?.msisdn || payoutDetails.accountNumber,
+      });
+      showResult(t('common.success'), 'Payout account saved.');
+    } catch (err) {
+      showResult(t('common.error'), err.message || 'Could not save payout details.', 'error');
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
+  const labelStatus = (value) => String(value || '-').replace(/_/g, ' ');
+
+  const renderBookings = () => {
+    const list = bookings.length ? bookings : data;
+    return (
     <ScrollView
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
       contentContainerStyle={styles.scrollContent}
@@ -785,8 +840,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
           <Text style={styles.title}>{t('seller.bookingRequests')}</Text>
         </>
       )}
-      
-      {/* Stats summary banner */}
+
       <View style={styles.statsRow}>
         <View style={styles.statsCard}>
           <Text style={styles.statsLabel}>{t('seller.totalOrders')}</Text>
@@ -794,81 +848,109 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         </View>
         <View style={styles.statsCard}>
           <Text style={styles.statsLabel}>{t('seller.revenueRwf')}</Text>
-          <Text style={styles.statsNumber}>{stats.totalRevenue.toLocaleString()}</Text>
+          <Text style={styles.statsNumber}>{Number(stats.totalRevenue || 0).toLocaleString()}</Text>
         </View>
       </View>
-      
+
+      <View style={styles.verifyBox}>
+        <Text style={styles.verifyLabel}>Complete booking with customer code</Text>
+        <View style={styles.inputSearchRow}>
+          <TextInput
+            placeholder="BK-XXXXX"
+            placeholderTextColor={colors.muted}
+            value={verificationCode}
+            onChangeText={setVerificationCode}
+            autoCapitalize="characters"
+            style={styles.verifyInput}
+          />
+          <TouchableOpacity style={styles.verifyBtn} onPress={handleVerifyCode} disabled={verifyLoading} activeOpacity={0.8}>
+            {verifyLoading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.verifyBtnText}>{t('actions.verify')}</Text>}
+          </TouchableOpacity>
+        </View>
+        {verifiedBooking ? (
+          <View style={{ marginTop: 12 }}>
+            <Text style={styles.tableSummary}>{verifiedBooking.customerName || verifiedBooking.touristId?.name || 'Customer'} · {verifiedBooking.serviceName || verifiedBooking.serviceId?.title || 'Service'}</Text>
+            <Text style={styles.tableSummary}>Paid: RWF {Number(verifiedBooking.amountPaid || verifiedBooking.depositAmount || 0).toLocaleString()}</Text>
+            <TouchableOpacity style={[styles.smallPrimaryButton, { marginTop: 10 }]} onPress={handleCompleteStay} disabled={verifyLoading} activeOpacity={0.84}>
+              <Text style={styles.smallPrimaryText}>Mark completed</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
+
       {loading && !refreshing && <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} />}
-      
-      {data.length === 0 && !loading && (
+
+      {list.length === 0 && !loading && (
         <View style={styles.emptyContainer}>
           <Feather name="inbox" size={44} color={colors.muted} />
           <Text style={styles.emptyText}>{t('seller.noRequests')}</Text>
         </View>
       )}
 
-      {data.map((booking) => {
-        const isPending = booking.status === 'pending' || booking.paymentStatus === 'pending';
+      {list.map((booking) => {
+        const status = String(booking.status || '').toLowerCase();
+        const isReviewable = ['pending', 'reviewing', 'requested'].includes(status);
+        const isConfirmed = status === 'confirmed';
+        const customerName = booking.touristId?.name || booking.userId?.name || booking.touristId?.email || t('seller.customer');
+        const serviceName = booking.serviceId?.title || booking.bookingDetails?.requestedService || booking.bookingDetails?.serviceName || booking.destinationPlace || t('seller.bookingDetail');
         return (
-          <View key={booking._id} style={styles.bookingCard}>
+          <View key={booking._id || booking.id} style={styles.bookingCard}>
             <View style={styles.cardHeader}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.bookingId}>{t('seller.code')}: {booking.bookingCode || 'TBD'}</Text>
-                <Text style={styles.cardTitle}>{booking.bookingDetails?.roomName || t('seller.bookingDetail')}</Text>
+                <Text style={styles.cardTitle}>{serviceName}</Text>
                 <Text style={styles.dateLabel}>
-                  {new Date(booking.checkIn).toLocaleDateString()} - {new Date(booking.checkOut).toLocaleDateString()}
+                  Qty {booking.quantity || 1} · {labelStatus(booking.paymentStatus || 'unpaid')}
                 </Text>
               </View>
-              <View style={[styles.badge, { backgroundColor: isPending ? '#FEF3C7' : '#D1FAE5' }]}>
-                <Text style={{ color: isPending ? '#B45309' : '#047857', fontWeight: '800', fontSize: 11 }}>
-                  {booking.paymentStatus || booking.status}
+              <View style={[styles.badge, { backgroundColor: isReviewable ? '#FEF3C7' : '#D1FAE5' }]}>
+                <Text style={{ color: isReviewable ? '#B45309' : '#047857', fontWeight: '800', fontSize: 11 }}>
+                  {labelStatus(status || booking.paymentStatus)}
                 </Text>
               </View>
             </View>
 
             <View style={styles.cardDivider} />
-            <Text style={styles.clientDetails}>{t('seller.clientName')}: {booking.touristId?.name || t('seller.customer')}</Text>
-            <Text style={styles.priceRow}>{t('seller.totalRate')}: <Text style={styles.priceBold}>RWF {booking.totalPrice?.toLocaleString()}</Text></Text>
+            <Text style={styles.clientDetails}>{t('seller.clientName')}: {customerName}</Text>
+            <Text style={styles.priceRow}>{t('seller.totalRate')}: <Text style={styles.priceBold}>RWF {Number(booking.totalPrice || booking.amountPaid || 0).toLocaleString()}</Text></Text>
 
-            {isPending && (
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.approveButton]}
-                  onPress={() => handleUpdateStatus(booking._id, 'confirmed')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.approveButtonText}>{t('actions.approveDeposit')}</Text>
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={[styles.actionButton, styles.outlineAction]} onPress={() => setSelectedBooking(booking)} activeOpacity={0.84}>
+                <Text style={styles.outlineActionText}>{t('actions.view')}</Text>
+              </TouchableOpacity>
+              {isReviewable ? (
+                <TouchableOpacity style={[styles.actionButton, styles.approveButton]} onPress={() => openBookingReview(booking)} activeOpacity={0.84}>
+                  <Text style={styles.approveButtonText}>Review</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.rejectButton]}
-                  onPress={() => handleUpdateStatus(booking._id, 'cancelled')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.rejectButtonText}>{t('actions.reject')}</Text>
+              ) : null}
+              {isConfirmed ? (
+                <TouchableOpacity style={[styles.actionButton, styles.rejectButton]} onPress={() => cancelConfirmedBooking(booking)} activeOpacity={0.84}>
+                  <Text style={styles.rejectButtonText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
-              </View>
-            )}
+              ) : null}
+            </View>
           </View>
         );
       })}
     </ScrollView>
-  );
+    );
+  };
 
   const renderVerify = () => (
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <Text style={styles.eyebrow}>{t('seller.workspace')}</Text>
       <Text style={styles.title}>{t('seller.guestVerification')}</Text>
-      <Text style={styles.text}>{t('seller.verifyHelp')}</Text>
+      <Text style={styles.text}>Enter a booking code or paste a QR /verify/... URL.</Text>
 
       <View style={styles.verifyBox}>
         <Text style={styles.verifyLabel}>{t('seller.bookingCode')}</Text>
         <View style={styles.inputSearchRow}>
           <TextInput
-            placeholder={t('seller.verifyPlaceholder')}
+            placeholder="BK-XXXXX or /verify/..."
             placeholderTextColor={colors.muted}
             value={verificationCode}
             onChangeText={setVerificationCode}
-            autoCapitalize="characters"
+            autoCapitalize="none"
             style={styles.verifyInput}
           />
           <TouchableOpacity
@@ -887,21 +969,21 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
           <Text style={styles.verifiedCardTitle}>{t('seller.reservationDetails')}</Text>
           <View style={styles.verifiedRow}>
             <Text style={styles.infoLabel}>{t('seller.client')}:</Text>
-            <Text style={styles.infoValue}>{verifiedBooking.touristId?.name || t('seller.traveler')}</Text>
+            <Text style={styles.infoValue}>{verifiedBooking.customerName || verifiedBooking.touristId?.name || t('seller.traveler')}</Text>
           </View>
           <View style={styles.verifiedRow}>
             <Text style={styles.infoLabel}>{t('serviceDetails.service')}:</Text>
-            <Text style={styles.infoValue}>{verifiedBooking.bookingDetails?.roomName || t('seller.standardRoom')}</Text>
+            <Text style={styles.infoValue}>{verifiedBooking.serviceName || verifiedBooking.serviceId?.title || verifiedBooking.bookingDetails?.requestedService || t('seller.standardRoom')}</Text>
           </View>
           <View style={styles.verifiedRow}>
             <Text style={styles.infoLabel}>{t('seller.dates')}:</Text>
             <Text style={styles.infoValue}>
-              {new Date(verifiedBooking.checkIn).toLocaleDateString()} - {new Date(verifiedBooking.checkOut).toLocaleDateString()}
+              {verifiedBooking.bookingDate ? new Date(verifiedBooking.bookingDate).toLocaleString() : verifiedBooking.checkIn ? new Date(verifiedBooking.checkIn).toLocaleDateString() : '-'}
             </Text>
           </View>
           <View style={styles.verifiedRow}>
-            <Text style={styles.infoLabel}>{t('seller.paymentStatus')}:</Text>
-            <Text style={[styles.infoValue, { color: colors.success }]}>{verifiedBooking.paymentStatus}</Text>
+            <Text style={styles.infoLabel}>Paid:</Text>
+            <Text style={[styles.infoValue, { color: colors.success }]}>RWF {Number(verifiedBooking.amountPaid || verifiedBooking.depositAmount || 0).toLocaleString()}</Text>
           </View>
 
           <TouchableOpacity
@@ -995,14 +1077,14 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         {loading && !refreshing ? <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} /> : null}
 
         <View style={styles.businessPanel}>
-          {data.length === 0 && !loading ? (
+          {(services.length ? services : data).length === 0 && !loading ? (
             <View style={styles.emptyContainer}>
               <Feather name="briefcase" size={44} color={colors.muted} />
               <Text style={styles.emptyText}>{t('seller.noBusinesses')}</Text>
             </View>
           ) : null}
 
-          {data.filter((item) => matchesServiceFilter(item, section || 'all')).map((item) => (
+          {(services.length ? services : data).filter((item) => matchesServiceFilter(item, section || 'all')).map((item) => (
             <View key={item._id} style={styles.businessCard}>
               <View style={styles.businessTop}>
                 <View style={{ flex: 1 }}>
@@ -1068,31 +1150,22 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         onPickImages={pickBusinessImages}
         onRemoveImage={removeBusinessImage}
       />
-      <ServiceDetailsView
-        visible={Boolean(viewService)}
-        service={viewService}
-        loading={viewServiceLoading}
-        showProvider={false}
-        title={t('actions.view')}
-        onClose={() => setViewService(null)}
-      />
     </View>
   );
-
-  const payout = overview?.payoutDetails || overview?.businesses?.[0]?.payoutDetails || data[0]?.payoutDetails || {};
-  const held = overview?.stats?.heldPayout || overview?.stats?.held || 0;
-  const failed = overview?.stats?.failedPayout || 0;
 
   const renderAnalytics = () => (
     <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} contentContainerStyle={styles.scrollContent}>
       <View style={styles.statsGrid}>
         <MetricCard label="Services" value={stats.listings || stats.businesses || 0} />
-        <MetricCard label="Earnings" value={`RWF ${Number(stats.totalRevenue || 0).toLocaleString()}`} />
-        <MetricCard label="Held payout" value={`RWF ${Number(held).toLocaleString()}`} />
+        <MetricCard label="Revenue" value={`RWF ${Number(stats.totalRevenue || 0).toLocaleString()}`} />
+        <MetricCard label="Held money" value={`RWF ${Number(stats.heldPayout || 0).toLocaleString()}`} />
         <MetricCard label="Bookings" value={stats.totalBookings || 0} />
         <MetricCard label="Active bookings" value={stats.activeBookings || 0} />
-        <MetricCard label="Pending services" value={data.filter((item) => String(item.approvalStatus || item.status || '').includes('pending')).length} />
-        <MetricCard label="Approved services" value={data.filter((item) => ['approved', 'available'].includes(String(item.approvalStatus || item.status || ''))).length} />
+        <MetricCard label="Completed" value={stats.completedBookings || 0} />
+        <MetricCard label="Cancellation rate" value={`${stats.cancellationRate || 0}%`} />
+        <MetricCard label="Low availability" value={stats.lowAvailability || 0} />
+        <MetricCard label="Pending services" value={stats.pendingServices || 0} />
+        <MetricCard label="Approved services" value={stats.approvedServices || 0} />
       </View>
       <TouchableOpacity style={styles.smallPrimaryButton} onPress={onRefresh} activeOpacity={0.84}>
         <Text style={styles.smallPrimaryText}>Refresh</Text>
@@ -1100,26 +1173,65 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     </ScrollView>
   );
 
-  const renderFinance = () => (
-    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} contentContainerStyle={styles.scrollContent}>
-      {(!section || section === 'finance') ? (
-        <View style={styles.statsGrid}>
-          <MetricCard label="Gross collected" value={`RWF ${Number(stats.totalRevenue || 0).toLocaleString()}`} />
-          <MetricCard label="Held payout" value={`RWF ${Number(held).toLocaleString()}`} />
-          <MetricCard label="Failed payout" value={`RWF ${Number(failed).toLocaleString()}`} />
-        </View>
-      ) : (
-        <View style={styles.businessCard}>
-          <Text style={styles.itemTitle}>Payout account</Text>
-          <Text style={styles.itemDescription}>Customers cannot pay until valid MoMo or bank details are saved.</Text>
-          <Text style={styles.tableSummary}>Method: {payout.method || 'Not set'}</Text>
-          <Text style={styles.tableSummary}>Account name: {payout.accountName || 'Not set'}</Text>
-          <Text style={styles.tableSummary}>Account number: {payout.accountNumber || 'Not set'}</Text>
-          <Text style={styles.managedText}>Update these details from Profile → Payment info.</Text>
-        </View>
-      )}
-    </ScrollView>
-  );
+  const renderFinance = () => {
+    const providerOptions = (payoutDetails.method === 'bank' ? payoutProviders.bankProviders : payoutProviders.mobileMoneyProviders)
+      .map((item) => [item.id, item.name]);
+    return (
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />} contentContainerStyle={styles.scrollContent}>
+        {(!section || section === 'finance') ? (
+          <>
+            <View style={styles.statsGrid}>
+              <MetricCard label="Gross collected" value={`RWF ${Number(finance.summary?.grossCollected || stats.totalRevenue || 0).toLocaleString()}`} />
+              <MetricCard label="Pending payout" value={`RWF ${Number(finance.summary?.pendingPayout || stats.pendingPayout || 0).toLocaleString()}`} />
+              <MetricCard label="Held payout" value={`RWF ${Number(finance.summary?.heldPayout || stats.heldPayout || 0).toLocaleString()}`} />
+              <MetricCard label="Failed payout" value={`RWF ${Number(finance.summary?.failedPayout || stats.failedPayout || 0).toLocaleString()}`} />
+            </View>
+            {(finance.transactions || []).map((tx) => (
+              <View key={tx._id || tx.payoutReference} style={styles.businessCard}>
+                <Text style={styles.itemTitle}>{tx.bookingId?.bookingCode || tx.payoutReference || 'Payout'}</Text>
+                <Text style={styles.tableSummary}>Amount: RWF {Number(tx.amount || 0).toLocaleString()}</Text>
+                <Text style={styles.tableSummary}>Status: {labelStatus(tx.payoutStatus)}</Text>
+                <Text style={styles.tableSummary}>Account: {tx.payoutAccount || '-'}</Text>
+                <Text style={styles.itemDescription}>{tx.payoutMessage || ''}</Text>
+              </View>
+            ))}
+            {!finance.transactions?.length ? <Text style={styles.managedText}>No payout transactions yet.</Text> : null}
+          </>
+        ) : (
+          <View style={styles.businessCard}>
+            <Text style={styles.itemTitle}>Payout account</Text>
+            <Text style={styles.itemDescription}>Customers cannot pay until valid MoMo or bank details are saved.</Text>
+            {!payoutDetails.accountNumber ? <Text style={styles.statusNoteDanger}>Warning: payout details are missing.</Text> : null}
+            <ModalSelectField
+              label={t('seller.payoutMethod')}
+              value={payoutDetails.method}
+              options={[['momo', t('bookingForm.mobileMoney')], ['bank', t('seller.bankAccount')]]}
+              onChange={(value) => setPayoutDetails((current) => ({
+                ...current,
+                method: value,
+                providerId: value === 'bank' ? (payoutProviders.bankProviders[0]?.id || 'equity') : (payoutProviders.mobileMoneyProviders[0]?.id || 'mtn'),
+              }))}
+              searchable={false}
+            />
+            {providerOptions.length ? (
+              <ModalSelectField
+                label="Provider"
+                value={payoutDetails.providerId}
+                options={providerOptions}
+                onChange={(value) => setPayoutDetails((current) => ({ ...current, providerId: value }))}
+                searchable={false}
+              />
+            ) : null}
+            <TextField label={t('seller.payoutAccountName')} value={payoutDetails.accountName} onChangeText={(text) => setPayoutDetails((current) => ({ ...current, accountName: text }))} />
+            <TextField label={t('seller.payoutAccountNumber')} value={payoutDetails.accountNumber} onChangeText={(text) => setPayoutDetails((current) => ({ ...current, accountNumber: text }))} keyboardType="phone-pad" />
+            <TouchableOpacity style={[styles.saveButton, savingPayout && { opacity: 0.72 }]} onPress={savePayoutAccount} disabled={savingPayout} activeOpacity={0.86}>
+              {savingPayout ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>Save payout account</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1135,6 +1247,24 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         items={overflow.items}
         onClose={() => setOverflow({ visible: false, title: 'Actions', items: [] })}
       />
+      <ServiceDetailsView
+        visible={Boolean(viewService)}
+        service={viewService}
+        loading={viewServiceLoading}
+        showProvider={false}
+        title={t('actions.view')}
+        onClose={() => setViewService(null)}
+      />
+      <BookingDetailModal booking={selectedBooking} onClose={() => setSelectedBooking(null)} />
+      <BookingReviewModal
+        booking={reviewBooking}
+        form={reviewForm}
+        setForm={setReviewForm}
+        loading={loading}
+        onClose={() => setReviewBooking(null)}
+        onApprove={approveReviewedBooking}
+        onReject={rejectReviewedBooking}
+      />
       {dialogNode}
     </View>
   );
@@ -1149,6 +1279,75 @@ function MetricCard({ label, value }) {
   );
 }
 
+function BookingDetailModal({ booking, onClose }) {
+  if (!booking) return null;
+  const responses = Array.isArray(booking.bookingDetails?.customResponses) ? booking.bookingDetails.customResponses : [];
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={styles.modalScreen}>
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Booking details</Text>
+            <TouchableOpacity style={styles.modalClose} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.itemTitle}>{booking.bookingCode || booking._id}</Text>
+          <Text style={styles.tableSummary}>Customer: {booking.touristId?.name || booking.userId?.name || booking.touristId?.email || '-'}</Text>
+          <Text style={styles.tableSummary}>Service: {booking.serviceId?.title || booking.bookingDetails?.requestedService || booking.destinationPlace || '-'}</Text>
+          <Text style={styles.tableSummary}>Status: {String(booking.status || '-').replace(/_/g, ' ')}</Text>
+          <Text style={styles.tableSummary}>Payment: {String(booking.paymentStatus || 'unpaid').replace(/_/g, ' ')}</Text>
+          <Text style={styles.tableSummary}>Amount paid: RWF {Number(booking.amountPaid || 0).toLocaleString()}</Text>
+          <Text style={styles.tableSummary}>Total: RWF {Number(booking.totalPrice || 0).toLocaleString()}</Text>
+          {booking.promotionSnapshot?.title ? (
+            <Text style={styles.tableSummary}>Promotion: {booking.promotionSnapshot.title} ({booking.promotionSnapshot.percent}%)</Text>
+          ) : null}
+          {responses.map((item, index) => (
+            <Text key={`${item.fieldId || item.label}-${index}`} style={styles.tableSummary}>{item.label}: {String(item.value ?? '')}</Text>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function BookingReviewModal({ booking, form, setForm, loading, onClose, onApprove, onReject }) {
+  if (!booking) return null;
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={styles.modalScreen}>
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>Review booking</Text>
+              <Text style={styles.modalSubtitle}>{booking.bookingCode || booking._id}</Text>
+            </View>
+            <TouchableOpacity style={styles.modalClose} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="x" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.itemDescription}>
+            {(booking.touristId?.name || booking.userId?.name || 'Customer')} · {(booking.serviceId?.title || booking.bookingDetails?.requestedService || 'Service')}
+          </Text>
+          <NumberField label="Final price (RWF)" value={String(form.totalPrice)} onChangeText={(text) => setForm((current) => ({ ...current, totalPrice: text }))} />
+          <NumberField label="Payment deadline (hours)" value={String(form.paymentDeadlineHours)} onChangeText={(text) => setForm((current) => ({ ...current, paymentDeadlineHours: text }))} />
+          <TextField label="Payment reason" value={form.paymentReason} onChangeText={(text) => setForm((current) => ({ ...current, paymentReason: text }))} />
+          <MultilineField label="Note to customer" value={form.note} onChangeText={(text) => setForm((current) => ({ ...current, note: text }))} />
+          <MultilineField label="Reject reason" value={form.reason} onChangeText={(text) => setForm((current) => ({ ...current, reason: text }))} />
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.actionButton, styles.approveButton, loading && { opacity: 0.7 }]} onPress={onApprove} disabled={loading} activeOpacity={0.84}>
+              <Text style={styles.approveButtonText}>Approve</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionButton, styles.rejectButton, loading && { opacity: 0.7 }]} onPress={onReject} disabled={loading} activeOpacity={0.84}>
+              <Text style={styles.rejectButtonText}>Reject</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingImages, error, onClose, onSave, onSet, onSetNested, onOptionCell, onAddOption, onRemoveOption, onBookingField, onAddBookingField, onRemoveBookingField, onPickImages, onRemoveImage }) {
   const { t } = useTranslation();
   const categoryOptions = SERVICE_CATEGORY_OPTIONS.map(([value, labelText]) => [value, t(`seller.categories.${value}`, { defaultValue: labelText })]);
@@ -1156,7 +1355,6 @@ function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingIm
   const calculationOptions = PRICE_TABLE_OPTIONS.calculationField.map(([value, labelText]) => [value, t(`seller.calculationFields.${value}`, { defaultValue: labelText })]);
   const durationOptions = PRICE_TABLE_OPTIONS.durationUnit.map(([value, labelText]) => [value, t(`seller.durationUnits.${value}`, { defaultValue: labelText })]);
   const fieldTypeOptions = FIELD_TYPES.map(([value, labelText]) => [value, t(`seller.fieldTypes.${value}`, { defaultValue: labelText })]);
-  const payoutOptions = [['mobile-money', t('bookingForm.mobileMoney')], ['bank', t('seller.bankAccount')]];
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -1202,9 +1400,7 @@ function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingIm
               <TextField label={t('seller.privatePhone')} value={form.contactDetails.phone} onChangeText={(text) => onSetNested('contactDetails', 'phone', text)} keyboardType="phone-pad" />
               <TextField label={t('seller.whatsapp')} value={form.contactDetails.whatsapp} onChangeText={(text) => onSetNested('contactDetails', 'whatsapp', text)} keyboardType="phone-pad" />
             </View>
-            <ModalSelectField label={t('seller.payoutMethod')} value={form.payoutDetails.method} options={payoutOptions} onChange={(value) => onSetNested('payoutDetails', 'method', value)} searchable={false} />
-            <TextField label={t('seller.payoutAccountName')} value={form.payoutDetails.accountName} onChangeText={(text) => onSetNested('payoutDetails', 'accountName', text)} />
-            <TextField label={t('seller.payoutAccountNumber')} value={form.payoutDetails.accountNumber} onChangeText={(text) => onSetNested('payoutDetails', 'accountNumber', text)} keyboardType="phone-pad" />
+            <Text style={styles.uploadHint}>Payout MoMo/bank is managed under Finance → Payout (and Profile).</Text>
           </Panel>
 
           <Panel title={t('seller.photos')}>
@@ -1260,6 +1456,22 @@ function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingIm
                   <NumberField label={t('seller.maxDuration')} value={String(row.cells.maximumDuration || '')} onChangeText={(text) => onOptionCell(row.id, 'maximumDuration', text)} />
                   <NumberField label={t('seller.capacity')} value={String(row.cells.availability || '')} onChangeText={(text) => onOptionCell(row.id, 'availability', text)} />
                 </View>
+                <View style={styles.twoColumns}>
+                  <TextField label="Available from" value={String(row.cells.availableFrom || '')} onChangeText={(text) => onOptionCell(row.id, 'availableFrom', text)} placeholder="YYYY-MM-DD" />
+                  <TextField label="Available until" value={String(row.cells.availableTo || '')} onChangeText={(text) => onOptionCell(row.id, 'availableTo', text)} placeholder="YYYY-MM-DD" />
+                </View>
+                <TextField label="Available days" value={String(row.cells.availableDays || '')} onChangeText={(text) => onOptionCell(row.id, 'availableDays', text)} placeholder="Mon,Tue,Wed,Thu,Fri" />
+                <View style={styles.twoColumns}>
+                  <TextField label="Open time" value={String(row.cells.availableStartTime || '')} onChangeText={(text) => onOptionCell(row.id, 'availableStartTime', text)} placeholder="07:00" />
+                  <TextField label="Close time" value={String(row.cells.availableEndTime || '')} onChangeText={(text) => onOptionCell(row.id, 'availableEndTime', text)} placeholder="20:00" />
+                </View>
+                <ModalSelectField
+                  label="Times required"
+                  value={row.cells.requiresTime || 'yes'}
+                  options={[['yes', 'Yes'], ['no', 'No']]}
+                  onChange={(value) => onOptionCell(row.id, 'requiresTime', value)}
+                  searchable={false}
+                />
                 <MultilineField label={t('seller.detailsAmenities')} value={row.cells.details || ''} onChangeText={(text) => onOptionCell(row.id, 'details', text)} placeholder="Wi-Fi, breakfast, private bathroom..." />
               </View>
             ))}
@@ -1279,6 +1491,21 @@ function BusinessEditModal({ visible, editingBusiness, form, saving, uploadingIm
               <NumberField label={t('seller.deadlineHours')} value={String(form.rebookSettings.requestDeadlineHours)} onChangeText={(text) => onSetNested('rebookSettings', 'requestDeadlineHours', text)} />
               <NumberField label={t('seller.rebookHours')} value={String(form.rebookSettings.rebookIdValidityHours)} onChangeText={(text) => onSetNested('rebookSettings', 'rebookIdValidityHours', text)} />
             </View>
+            <View style={styles.twoColumns}>
+              <NumberField label="Cancel window (hours)" value={String(form.cancelWindowHours || '6')} onChangeText={(text) => onSet('cancelWindowHours', text)} />
+              <NumberField label="Cancel penalty (%)" value={String(form.cancelPenaltyPercent || '20')} onChangeText={(text) => onSet('cancelPenaltyPercent', text)} />
+            </View>
+            {form.bookingModeEditable ? (
+              <ModalSelectField
+                label="Booking mode"
+                value={form.bookingMode || 'manual'}
+                options={[['manual', 'Manual approval'], ['auto', 'Auto confirm']]}
+                onChange={(value) => onSet('bookingMode', value)}
+                searchable={false}
+              />
+            ) : (
+              <Text style={styles.uploadHint}>Booking mode: {form.bookingMode || 'manual'} (marketplace-controlled).</Text>
+            )}
           </Panel>
 
           <Panel title={t('seller.promotion')}>
@@ -1935,6 +2162,16 @@ const createStyles = (colors) => StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '800',
+  },
+  outlineAction: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  outlineActionText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
   },
   rejectButton: {
     backgroundColor: colors.dangerSurface,

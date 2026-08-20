@@ -31,10 +31,10 @@ export function getPaymentCheckoutUrl(data = {}) {
 }
 
 export async function fetchPaymentMethods() {
-  const response = await apiFetch('/payments/methods', { timeoutMs: 8000 });
+  const response = await apiFetch('/payments/methods', { timeoutMs: 8000, skipAuth: true });
   const data = await readJson(response);
-  const items = data.methods || data.items || data.data || [];
-  const methods = (Array.isArray(items) ? items : [])
+  const collection = data.collectionMethods || data.methods || data.items || data.data || [];
+  const methods = (Array.isArray(collection) ? collection : [])
     .map((item) => {
       if (typeof item === 'string') {
         const normalized = normalizePaymentMethod(item);

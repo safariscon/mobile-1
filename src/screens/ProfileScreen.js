@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,7 @@ import { useAppDialog } from '../components/AppDialog';
 import PolicyLinks from '../components/PolicyLinks';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { apiFetch } from '../config/api';
+import { fetchSellerPaymentProviders, fetchSellerPayoutDetails, saveSellerPayoutDetails } from '../api/seller';
 import { roleLabel, userInitials } from '../lib/navigation';
 import { baseInputStyle } from '../theme/inputStyles';
 
@@ -23,8 +23,35 @@ export default function ProfileScreen() {
   const [phone, setPhone] = useState(user?.phone || '');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [payoutName, setPayoutName] = useState(user?.payoutDetails?.accountName || '');
-  const [payoutNumber, setPayoutNumber] = useState(user?.payoutDetails?.accountNumber || '');
+  const [savingPayout, setSavingPayout] = useState(false);
+  const [payoutMethod, setPayoutMethod] = useState('momo');
+  const [payoutProviderId, setPayoutProviderId] = useState('mtn');
+  const [payoutName, setPayoutName] = useState('');
+  const [payoutNumber, setPayoutNumber] = useState('');
+  const [providers, setProviders] = useState({ mobileMoneyProviders: [], bankProviders: [] });
+
+  useEffect(() => {
+    if (!isSeller) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [payout, paymentProviders] = await Promise.all([
+          fetchSellerPayoutDetails().catch(() => ({})),
+          fetchSellerPaymentProviders().catch(() => ({ mobileMoneyProviders: [], bankProviders: [] })),
+        ]);
+        if (cancelled) return;
+        const method = String(payout?.method || 'momo').toLowerCase().includes('bank') ? 'bank' : 'momo';
+        setPayoutMethod(method);
+        setPayoutProviderId(payout?.providerId || (method === 'bank' ? 'equity' : 'mtn'));
+        setPayoutName(payout?.accountName || '');
+        setPayoutNumber(payout?.accountNumber || payout?.msisdn || '');
+        setProviders(paymentProviders);
+      } catch {
+        // keep empty payout form
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSeller]);
 
   const saveProfile = async () => {
     const result = await updateProfile({ name: name.trim(), phone: phone.trim() });
@@ -45,17 +72,29 @@ export default function ProfileScreen() {
   };
 
   const savePayout = async () => {
+    if (!payoutName.trim() || !payoutNumber.trim()) {
+      showResult(t('common.error'), t('seller.validation.payoutRequired'), 'error');
+      return;
+    }
+    setSavingPayout(true);
     try {
-      const response = await apiFetch('/hotel/overview', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payoutDetails: { method: 'momo', accountName: payoutName, accountNumber: payoutNumber, msisdn: payoutNumber } }),
+      const method = payoutMethod === 'bank' ? 'bank' : 'momo';
+      const saved = await saveSellerPayoutDetails({
+        method,
+        providerId: payoutProviderId || (method === 'bank' ? 'equity' : 'mtn'),
+        accountName: payoutName.trim(),
+        accountNumber: payoutNumber.trim(),
+        ...(method === 'momo' ? { msisdn: payoutNumber.trim() } : {}),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Could not save payout details.');
+      setPayoutMethod(String(saved?.method || method).includes('bank') ? 'bank' : 'momo');
+      setPayoutProviderId(saved?.providerId || payoutProviderId);
+      setPayoutName(saved?.accountName || payoutName);
+      setPayoutNumber(saved?.accountNumber || saved?.msisdn || payoutNumber);
       showResult(t('common.success'), 'Payout details saved.');
     } catch (saveError) {
       showResult(t('common.error'), saveError.message, 'error');
+    } finally {
+      setSavingPayout(false);
     }
   };
 
@@ -71,6 +110,8 @@ export default function ProfileScreen() {
       },
     });
   };
+
+  const providerList = payoutMethod === 'bank' ? providers.bankProviders : providers.mobileMoneyProviders;
 
   return (
     <>
@@ -89,6 +130,7 @@ export default function ProfileScreen() {
             <Feather name="shield" size={13} color={colors.primaryDark} />
             <Text style={styles.roleText}>{displayRole}</Text>
           </View>
+          {user?.sellerId ? <Text style={styles.helpText}>Seller ID: {user.sellerId}</Text> : null}
         </View>
       </View>
 
@@ -122,10 +164,47 @@ export default function ProfileScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Payout</Text>
           </View>
+          <Text style={styles.helpText}>Same MoMo / bank payout account as Finance → Payout.</Text>
+          <View style={styles.methodRow}>
+            <TouchableOpacity
+              style={[styles.methodChip, payoutMethod === 'momo' && styles.methodChipActive]}
+              onPress={() => {
+                setPayoutMethod('momo');
+                setPayoutProviderId(providers.mobileMoneyProviders[0]?.id || 'mtn');
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.methodChipText, payoutMethod === 'momo' && styles.methodChipTextActive]}>Mobile Money</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.methodChip, payoutMethod === 'bank' && styles.methodChipActive]}
+              onPress={() => {
+                setPayoutMethod('bank');
+                setPayoutProviderId(providers.bankProviders[0]?.id || 'equity');
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.methodChipText, payoutMethod === 'bank' && styles.methodChipTextActive]}>Bank</Text>
+            </TouchableOpacity>
+          </View>
+          {providerList.length ? (
+            <View style={styles.methodRow}>
+              {providerList.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.methodChip, payoutProviderId === item.id && styles.methodChipActive]}
+                  onPress={() => setPayoutProviderId(item.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.methodChipText, payoutProviderId === item.id && styles.methodChipTextActive]}>{item.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
           <TextInput value={payoutName} onChangeText={setPayoutName} placeholder="Account name" placeholderTextColor={colors.muted} style={styles.input} />
-          <TextInput value={payoutNumber} onChangeText={setPayoutNumber} placeholder="MoMo / account number" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
-          <TouchableOpacity style={styles.saveButton} onPress={savePayout} activeOpacity={0.85}>
-            <Text style={styles.saveText}>Save payout</Text>
+          <TextInput value={payoutNumber} onChangeText={setPayoutNumber} placeholder="Account / MoMo number" placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
+          <TouchableOpacity style={styles.saveButton} onPress={savePayout} disabled={savingPayout} activeOpacity={0.85}>
+            {savingPayout ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveText}>Save payout</Text>}
           </TouchableOpacity>
         </>
       ) : null}
@@ -235,14 +314,6 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  optionsList: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
   optionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -252,6 +323,11 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    marginBottom: 10,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   optionLeft: {
     flexDirection: 'row',
@@ -263,57 +339,31 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  optionValue: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '600',
+  methodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
   },
-  statusPill: {
-    backgroundColor: colors.primary,
+  methodChip: {
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  statusPillText: {
-    color: colors.white,
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  devNote: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 12,
-  },
-  devRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 26,
-  },
-  devButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 40,
-    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  devButtonActive: {
+  methodChipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  devButtonText: {
+  methodChipText: {
     color: colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  devButtonTextActive: {
-    color: colors.white,
+    fontSize: 12,
     fontWeight: '800',
+  },
+  methodChipTextActive: {
+    color: colors.white,
   },
   logoutLink: {
     alignItems: 'center',

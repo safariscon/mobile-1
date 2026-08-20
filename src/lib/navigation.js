@@ -32,6 +32,7 @@ export const PAGE_INNER = {
     { key: 'all', label: 'All' },
     { key: 'pending', label: 'Pending' },
     { key: 'approved', label: 'Approved' },
+    { key: 'rejected', label: 'Rejected' },
   ],
   seller_bookings: [
     { key: 'bookings', label: 'Bookings' },

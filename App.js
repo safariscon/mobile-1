@@ -20,8 +20,6 @@ import CompleteProviderRegistrationScreen from './src/screens/CompleteProviderRe
 import PublicBusinessRegisterScreen from './src/screens/PublicBusinessRegisterScreen';
 import PoliciesScreen from './src/screens/PoliciesScreen';
 import LoginOtpScreen from './src/screens/LoginOtpScreen';
-import BusinessRegistrationScreen from './src/screens/BusinessRegistrationScreen';
-import BusinessRegistrationStatusScreen from './src/screens/BusinessRegistrationStatusScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ServicesScreen from './src/screens/ServicesScreen';
 import ServiceDetailsModal from './src/components/ServiceDetailsModal';
@@ -148,7 +146,6 @@ function MainAppContent() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [moreVisible, setMoreVisible] = useState(false);
   const [pageSection, setPageSection] = useState(null);
-  const [editingBusiness, setEditingBusiness] = useState(false);
   const [serviceFilters, setServiceFilters] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [routeBooking, setRouteBooking] = useState(null);
@@ -159,7 +156,6 @@ function MainAppContent() {
       setActiveTab('home');
     } else if (isSeller) {
       setActiveTab('seller_analytics');
-      setEditingBusiness(false);
     } else if (isAdmin) {
       setActiveTab('admin_analytics');
     } else if (isTourist) {
@@ -233,14 +229,6 @@ function MainAppContent() {
 
   if (isAuthenticated && termsPending) {
     return <PoliciesScreen requireAccept initialTab="terms" />;
-  }
-
-  if (isSeller && (!user?.hasBusiness || editingBusiness)) {
-    return <BusinessRegistrationScreen onSubmitted={() => setEditingBusiness(false)} />;
-  }
-
-  if (isSeller && ['pending', 'draft', 'rejected'].includes(user?.businessStatus || user?.businessReviewStatus)) {
-    return <BusinessRegistrationStatusScreen onEdit={() => setEditingBusiness(true)} />;
   }
 
   if (selectedService) {

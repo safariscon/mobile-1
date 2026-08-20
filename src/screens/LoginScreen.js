@@ -68,11 +68,15 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             <Text style={styles.backText}>{t('common.back')}</Text>
           </TouchableOpacity>
 
-          <View style={styles.heroIcon}>
-            <Feather name="log-in" size={24} color={colors.white} />
+          <View style={styles.heroRow}>
+            <View style={styles.heroIcon}>
+              <Feather name="log-in" size={20} color={colors.white} />
+            </View>
+            <View style={styles.heroCopy}>
+              <Text style={styles.title}>{t('auth.login.title')}</Text>
+              <Text style={styles.subtitle}>{t('auth.login.subtitle')}</Text>
+            </View>
           </View>
-          <Text style={styles.title}>{t('auth.login.title')}</Text>
-          <Text style={styles.subtitle}>{t('auth.login.subtitle')}</Text>
 
           {!!error && (
             <View style={styles.errorBox}>
@@ -106,21 +110,22 @@ export default function LoginScreen({ onBack, onNavigateToRegister, onNavigateTo
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>{t('common.signIn')}</Text>}
           </TouchableOpacity>
 
-          <View style={styles.signupRow}>
-            <Text style={styles.footerText}>{t('auth.login.noAccount')} </Text>
-            <TouchableOpacity onPress={onNavigateToRegister} activeOpacity={0.75}>
-              <Text style={styles.linkText}>{t('auth.login.signUp')}</Text>
+          <TouchableOpacity style={styles.switchAuthButton} onPress={onNavigateToRegister} activeOpacity={0.84}>
+            <Text style={styles.switchAuthText}>{t('auth.login.noAccount')}</Text>
+            <Text style={styles.switchAuthLink}>{t('auth.login.signUp')}</Text>
+            <Feather name="chevron-right" size={16} color={colors.primary} />
+          </TouchableOpacity>
+
+          <View style={styles.providerLinks}>
+            <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
+              <Feather name="briefcase" size={15} color={colors.primary} />
+              <Text style={styles.providerActionText}>Complete provider registration</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
+              <Feather name="plus-square" size={15} color={colors.primary} />
+              <Text style={styles.providerActionText}>Register a business</Text>
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToProviderRegistration} activeOpacity={0.8}>
-            <Feather name="briefcase" size={16} color={colors.primary} />
-            <Text style={styles.providerActionText}>Complete provider registration</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.providerAction} onPress={onNavigateToBusinessRegister} activeOpacity={0.8}>
-            <Feather name="plus-square" size={16} color={colors.primary} />
-            <Text style={styles.providerActionText}>Register a business</Text>
-          </TouchableOpacity>
           <PolicyLinks compact />
         </View>
       </ScrollView>
@@ -170,9 +175,9 @@ const createStyles = (colors) => StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 28,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   page: {
     flexGrow: 1,
@@ -182,55 +187,55 @@ const createStyles = (colors) => StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 5,
-    marginBottom: 22,
+    marginBottom: 12,
+    paddingVertical: 4,
   },
   backText: {
     color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
   },
+  heroRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
   heroIcon: {
     alignItems: 'center',
-    alignSelf: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 18,
-    height: 56,
+    borderRadius: 14,
+    height: 44,
     justifyContent: 'center',
-    marginBottom: 14,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    width: 56,
-    elevation: 5,
+    width: 44,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     color: colors.textStrong,
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: '900',
-    textAlign: 'center',
   },
   subtitle: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 28,
-    marginTop: 8,
-    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   errorBox: {
     backgroundColor: colors.dangerSurface,
     borderColor: colors.danger,
     borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 14,
+    marginBottom: 10,
     padding: 10,
   },
   errorText: {
     color: colors.danger,
     fontSize: 13,
     fontWeight: '900',
-    textAlign: 'center',
   },
   errorCause: {
     color: colors.danger,
@@ -238,23 +243,22 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '700',
     lineHeight: 16,
     marginTop: 4,
-    textAlign: 'center',
   },
   inputGroup: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
   label: {
     color: colors.text,
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 7,
+    marginBottom: 5,
   },
   input: {
     ...baseInputStyle(colors),
     borderRadius: 12,
     borderWidth: 1,
     fontSize: 15,
-    height: 52,
+    height: 48,
     paddingHorizontal: 14,
   },
   passwordBox: {
@@ -264,7 +268,7 @@ const createStyles = (colors) => StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 52,
+    height: 48,
     overflow: 'hidden',
   },
   passwordInput: {
@@ -279,7 +283,7 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: 'transparent',
     borderLeftColor: colors.border,
     borderLeftWidth: 1,
-    height: 52,
+    height: 48,
     justifyContent: 'center',
     width: 48,
   },
@@ -287,9 +291,9 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.primary,
     borderRadius: 12,
-    height: 52,
+    height: 48,
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
   buttonDisabled: {
     opacity: 0.72,
@@ -299,33 +303,44 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
-  signupRow: {
+  switchAuthButton: {
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
     flexDirection: 'row',
+    gap: 6,
     justifyContent: 'center',
-    marginTop: 24,
+    marginTop: 14,
+    minHeight: 48,
+    paddingHorizontal: 14,
   },
-  footerText: {
+  switchAuthText: {
     color: colors.text,
     fontSize: 14,
+    fontWeight: '700',
   },
-  linkText: {
+  switchAuthLink: {
     color: colors.primary,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  providerLinks: {
+    gap: 2,
+    marginTop: 8,
   },
   providerAction: {
     alignItems: 'center',
     alignSelf: 'center',
     flexDirection: 'row',
     gap: 7,
-    marginTop: 16,
     paddingVertical: 8,
   },
   forgotButton: {
     alignSelf: 'flex-end',
-    marginBottom: 8,
-    marginTop: -4,
+    marginBottom: 6,
+    marginTop: -2,
     paddingVertical: 4,
   },
   forgotText: {
@@ -342,7 +357,7 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   rememberBox: {
     alignItems: 'center',
