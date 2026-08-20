@@ -221,15 +221,26 @@ export function normalizeAvailabilityTable(service) {
 export function normalizeServiceDetail(item, index = 0) {
   const id = String(firstValue(item._id, item.id, item.slug, index));
   const title = firstValue(item.title, item.name, item.displayName, item.businessName, item.hotelName, `${i18n.t('serviceDetails.service')} ${index + 1}`);
-  const rawCategory = firstValue(
+  const categoryId = String(firstValue(
+    typeof item.categoryId === 'object' ? (item.categoryId?._id || item.categoryId?.id) : item.categoryId,
+    item.category?._id,
+    item.category?.id,
+    ''
+  ) || '');
+  const categorySlug = firstValue(
+    item.categorySlug,
+    typeof item.category === 'object' ? item.category?.slug : null,
     typeof item.category === 'string' ? item.category : null,
-    item.category?.slug,
-    item.category?.name,
     item.type,
     item.serviceType,
-    item.businessType,
-    i18n.t('serviceDetails.service')
+    'service'
   );
+  const categoryName = firstValue(
+    item.categoryName,
+    typeof item.category === 'object' ? item.category?.name : null,
+    labelFromSlug(categorySlug)
+  );
+  const rawCategory = categorySlug;
   const location = resolveServiceLocation(item);
   const images = collectImages(item);
   const imageUrls = images.map((image) => image.url);
@@ -296,13 +307,6 @@ export function normalizeServiceDetail(item, index = 0) {
         cells: {},
       }];
 
-  const categoryName = firstValue(
-    item.category?.name,
-    item.categoryName,
-    typeof item.category === 'string' ? labelFromSlug(item.category) : null,
-    labelFromSlug(rawCategory)
-  );
-
   const provider = {
     name: firstValue(item.provider?.name, item.providerName, item.sellerName, item.businessName),
     email: firstValue(item.provider?.email, item.providerEmail, item.contactDetails?.email),
@@ -323,8 +327,10 @@ export function normalizeServiceDetail(item, index = 0) {
     name: title,
     description: firstValue(item.description, item.shortDescription, item.summary, i18n.t('serviceDetails.privacyDescription')),
     category: categoryName,
-    serviceType: typeof rawCategory === 'string' ? rawCategory : (rawCategory?.slug || categoryName),
-    categoryId: firstValue(item.categoryId, item.category?._id, item.category?.id),
+    categoryName,
+    categorySlug,
+    categoryId: categoryId || null,
+    serviceType: categorySlug,
     schemaSnapshot: item.schemaSnapshot || null,
     listingAttributes: item.listingAttributes || {},
     basePrice: numberFrom(item.basePrice, priceAmount),

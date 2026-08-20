@@ -126,18 +126,26 @@ function optimizeImageUrl(image) {
 
 export function normalizeService(item, index = 0) {
   const title = firstValue(item.title, item.displayName, item.anonymousName, item.name, item.hotelName, item.businessName, item.serviceName, `${i18n.t('serviceDetails.service')} ${index + 1}`);
-  const rawCategory = firstValue(
+  const categoryId = String(firstValue(
+    typeof item.categoryId === 'object' ? (item.categoryId?._id || item.categoryId?.id) : item.categoryId,
+    item.category?._id,
+    item.category?.id,
+    ''
+  ) || '');
+  const categorySlug = firstValue(
+    item.categorySlug,
+    typeof item.category === 'object' ? item.category?.slug : null,
     typeof item.category === 'string' ? item.category : null,
-    item.category?.name,
-    item.category?.slug,
     item.type,
     item.serviceType,
     item.businessType,
-    i18n.t('serviceDetails.service')
+    'service'
   );
-  const category = typeof item.category === 'object' && item.category?.name
-    ? item.category.name
-    : labelFromSlug(rawCategory);
+  const category = firstValue(
+    item.categoryName,
+    typeof item.category === 'object' ? item.category?.name : null,
+    labelFromSlug(categorySlug)
+  );
   const city = firstValue(
     item.generalLocation,
     item.destinationLocation,
@@ -160,7 +168,10 @@ export function normalizeService(item, index = 0) {
     sourceType: item.sourceType || (item.hotelId ? 'service' : 'hotel'),
     title,
     category,
-    serviceCategory: rawCategory,
+    categoryName: category,
+    categorySlug,
+    categoryId: categoryId || null,
+    serviceCategory: categorySlug,
     businessType: item.businessType,
     district: firstValue(item.district, item.serviceLocation?.district, item.location?.district),
     address: firstValue(item.address, item.fullAddress, item.serviceLocation?.fullAddress, item.contactDetails?.exactAddress),

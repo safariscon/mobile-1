@@ -1378,7 +1378,7 @@ function AdminServiceCard({ service, onReview, onChangeMode, onOpenMenu }) {
             </View>
             {onOpenMenu ? <MenuTrigger onPress={onOpenMenu} /> : null}
           </View>
-          <Text style={styles.serviceCategory} numberOfLines={1}>{label(service.serviceType || service.category || t('common.services'))}</Text>
+          <Text style={styles.serviceCategory} numberOfLines={1}>{label(service.categoryName || service.categorySlug || service.serviceType || service.category || t('common.services'))}</Text>
           {providerName ? <Text style={styles.serviceProvider} numberOfLines={1}>{providerName}</Text> : null}
           {locationText ? <Text style={styles.serviceLocation} numberOfLines={1}>{locationText}</Text> : null}
           <View style={styles.serviceMetaRow}>

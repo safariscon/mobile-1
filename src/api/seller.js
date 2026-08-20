@@ -32,8 +32,9 @@ export async function fetchSellerOverview() {
 
 export async function fetchSellerServices({ page = 1, limit = 50, categoryId, categorySlug } = {}) {
   const query = new URLSearchParams({ page: String(page), limit: String(limit) });
-  if (categoryId) query.set('categoryId', categoryId);
-  if (categorySlug) query.set('categorySlug', categorySlug);
+  // Prefer stable categoryId. categorySlug is only a fallback the backend resolves to the current id.
+  if (categoryId) query.set('categoryId', String(categoryId));
+  else if (categorySlug) query.set('categorySlug', String(categorySlug));
   const response = await apiFetch(`/hotel/services?${query.toString()}`, { timeoutMs: 12000 });
   const data = await readJson(response);
   if (!response.ok) throw new Error(data.message || data.error || 'Could not load services.');
@@ -304,16 +305,19 @@ function buildContactPayload(contact = {}) {
   };
 }
 
-/** Schema-driven seller create/update body. Omits forbidden seller fields. */
+/** Schema-driven seller create/update body. Omits forbidden seller fields.
+ * Category binding is by categoryId only (stable). Do not send slug as source of truth.
+ */
 export function buildServicePayload(form, { category } = {}) {
   const imageUrls = (form.images || []).map((image) => String(image || '').trim()).filter(Boolean).slice(0, 5);
   const normalizedStatus = form.status === 'unavailable' ? 'unavailable' : 'available';
   const supportsOptions = category?.supportsOptions !== false && form.supportsOptions !== false;
   const location = buildLocationPayload(form.location || form.serviceLocation || {});
   const contactDetails = buildContactPayload(form.contactDetails || {});
+  const categoryId = String(form.categoryId || category?._id || category?.id || '').trim();
 
   const payload = {
-    categoryId: form.categoryId || category?._id || category?.id,
+    categoryId,
     title: form.title,
     description: form.description,
     status: normalizedStatus,

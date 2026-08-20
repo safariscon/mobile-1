@@ -28,7 +28,7 @@ import {
   updateSellerService,
   verifySellerBookingCode,
 } from '../api/seller';
-import { fetchServiceCategories } from '../api/categories';
+import { fetchServiceCategories, serviceCategoryId, serviceCategoryLabel } from '../api/categories';
 import { fetchMarketplaceSettings } from '../api/services';
 import ServiceEditorModal from '../components/ServiceEditorModal';
 import { normalizeServiceDetail } from '../lib/serviceMapper';
@@ -91,6 +91,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [bookings, setBookings] = useState([]);
   const [services, setServices] = useState([]);
   const [serviceCategories, setServiceCategories] = useState([]);
+  const [catalogCategoryId, setCatalogCategoryId] = useState('');
   const [businessEditorOpen, setBusinessEditorOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState(null);
   const [editingOptions, setEditingOptions] = useState([]);
@@ -694,6 +695,32 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         {loading && !refreshing ? <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} /> : null}
 
         <View style={styles.businessPanel}>
+          {serviceCategories.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+              <TouchableOpacity
+                style={[styles.remainingPill, !catalogCategoryId && { backgroundColor: colors.primary }]}
+                onPress={() => setCatalogCategoryId('')}
+                activeOpacity={0.84}
+              >
+                <Text style={[styles.remainingText, !catalogCategoryId && { color: colors.white }]}>All categories</Text>
+              </TouchableOpacity>
+              {serviceCategories.map((category) => {
+                const id = String(category._id || category.id);
+                const active = catalogCategoryId === id;
+                return (
+                  <TouchableOpacity
+                    key={id}
+                    style={[styles.remainingPill, active && { backgroundColor: colors.primary }]}
+                    onPress={() => setCatalogCategoryId(id)}
+                    activeOpacity={0.84}
+                  >
+                    <Text style={[styles.remainingText, active && { color: colors.white }]}>{category.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
           {(services.length ? services : data).length === 0 && !loading ? (
             <View style={styles.emptyContainer}>
               <Feather name="briefcase" size={44} color={colors.muted} />
@@ -701,13 +728,16 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
             </View>
           ) : null}
 
-          {(services.length ? services : data).filter((item) => matchesServiceFilter(item, section || 'all')).map((item) => (
-            <View key={item._id} style={styles.businessCard}>
+          {(services.length ? services : data)
+            .filter((item) => matchesServiceFilter(item, section || 'all'))
+            .filter((item) => !catalogCategoryId || serviceCategoryId(item) === catalogCategoryId)
+            .map((item) => (
+            <View key={item._id || item.id} style={styles.businessCard}>
               <View style={styles.businessTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemTitle}>{item.name || item.title}</Text>
                   <Text style={styles.itemTypeLabel}>
-                    {item.category?.name || item.categoryName || item.category || item.type || t('seller.service')}
+                    {serviceCategoryLabel(item, serviceCategories)}
                   </Text>
                 </View>
                 <View style={styles.remainingPill}>

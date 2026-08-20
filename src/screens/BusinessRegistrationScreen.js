@@ -72,7 +72,7 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
   const categoryOptions = categories.length ? categorySelectOptions(categories) : SERVICE_CATEGORY_OPTIONS;
 
   const handleSubmit = async () => {
-    if (!form.title || !(form.categoryId || form.category) || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
+    if (!form.title || !form.categoryId || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
       setError(t('businessRegistration.required'));
       return;
     }
@@ -90,8 +90,7 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
         body: JSON.stringify({
           title: form.title,
           name: form.title,
-          categoryId: form.categoryId || undefined,
-          category: form.category,
+          categoryId: form.categoryId,
           description: form.description,
           availableQuantity: 1,
           basePrice: Number(form.optionPrice) || 0,
@@ -155,12 +154,12 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
         <TextField label={t('seller.businessName')} value={form.title} onChangeText={(value) => update('title', value)} />
         <SelectField
           label={t('businessRegistration.businessCategory')}
-          value={form.categoryId || form.category}
+          value={form.categoryId}
           options={categoryOptions}
           onChange={(value) => {
-            const match = categories.find((item) => String(item._id || item.id) === String(value) || item.slug === value);
-            update('categoryId', match?._id || match?.id || value);
-            update('category', match?.slug || match?.name || value);
+            const match = categories.find((item) => String(item._id || item.id) === String(value));
+            update('categoryId', String(match?._id || match?.id || value));
+            update('category', match?.slug || match?.name || '');
           }}
           placeholder="Select category"
         />

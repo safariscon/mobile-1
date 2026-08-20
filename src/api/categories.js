@@ -98,13 +98,40 @@ export async function deleteAdminServiceCategory(id) {
 }
 
 export function categorySelectOptions(categories = []) {
-  return categories.map((category) => [
-    category._id || category.id || category.slug,
-    category.name || category.label || category.slug,
-  ]);
+  return categories
+    .map((category) => {
+      const id = category._id || category.id;
+      if (!id) return null;
+      return [String(id), category.name || category.label || category.slug || String(id)];
+    })
+    .filter(Boolean);
 }
 
+/** Prefer stable Mongo id; slug is display/legacy fallback only. */
 export function findCategory(categories = [], idOrSlug) {
   const key = String(idOrSlug || '');
-  return categories.find((item) => [item._id, item.id, item.slug].map(String).includes(key)) || null;
+  if (!key) return null;
+  return (
+    categories.find((item) => String(item._id || '') === key || String(item.id || '') === key)
+    || categories.find((item) => String(item.slug || '') === key)
+    || null
+  );
 }
+
+export function serviceCategoryId(service) {
+  const raw = service?.categoryId;
+  if (raw && typeof raw === 'object') return String(raw._id || raw.id || '');
+  return String(raw || service?.category?._id || service?.category?.id || '');
+}
+
+export function serviceCategoryLabel(service, categories = []) {
+  const liveName = service?.categoryName || (typeof service?.category === 'object' ? service.category?.name : null);
+  if (liveName) return liveName;
+  const id = serviceCategoryId(service);
+  const match = findCategory(categories, id) || findCategory(categories, service?.categorySlug || service?.type);
+  if (match?.name) return match.name;
+  if (service?.categorySlug) return service.categorySlug;
+  if (typeof service?.category === 'string') return service.category;
+  return service?.type || 'Service';
+}
+

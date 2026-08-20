@@ -23,7 +23,7 @@ import PhoneNumberField from './PhoneNumberField';
 import SchemaFields, { validateSchemaValues } from './SchemaFields';
 import ServiceLocationPicker from './ServiceLocationPicker';
 import WorldLocationFields from './WorldLocationFields';
-import { categorySelectOptions, findCategory } from '../api/categories';
+import { categorySelectOptions, findCategory, serviceCategoryId } from '../api/categories';
 import {
   buildOptionPayload,
   buildServicePayload,
@@ -93,8 +93,12 @@ const emptyOption = () => ({
 function formFromService(service, categories = []) {
   const location = service?.location || service?.serviceLocation || {};
   const contact = service?.contactDetails || {};
-  const categoryId = service?.categoryId?._id || service?.categoryId || service?.category?.id || service?.category?._id || '';
-  const category = findCategory(categories, categoryId) || service?.category || null;
+  const categoryId = serviceCategoryId(service)
+    || String(service?.categoryId || '')
+    || '';
+  const category = findCategory(categories, categoryId)
+    || findCategory(categories, service?.categorySlug)
+    || (typeof service?.category === 'object' ? service.category : null);
   const phone = contact.phoneE164
     ? { phoneE164: contact.phoneE164, phoneIso: contact.phoneIso || 'RW', display: displayPhoneFromE164(contact.phoneE164) }
     : { ...toE164(contact.phone || ''), display: contact.phone || '' };
@@ -106,7 +110,9 @@ function formFromService(service, categories = []) {
 
   const images = (service?.images || []).map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean);
   return {
-    categoryId: categoryId || category?._id || category?.id || '',
+    categoryId: String(categoryId || category?._id || category?.id || ''),
+    categoryName: service?.categoryName || category?.name || '',
+    categorySlug: service?.categorySlug || category?.slug || '',
     title: service?.title || service?.name || '',
     description: service?.description || '',
     status: service?.status === 'unavailable' ? 'unavailable' : 'available',
@@ -207,11 +213,13 @@ export default function ServiceEditorModal({
     listingAttributes: { ...current.listingAttributes, [id]: value },
   }));
 
-  const onCategoryChange = (categoryId) => {
-    const category = findCategory(categories, categoryId);
+  const onCategoryChange = (nextCategoryId) => {
+    const category = findCategory(categories, nextCategoryId);
     setForm((current) => ({
       ...current,
-      categoryId,
+      categoryId: String(nextCategoryId || ''),
+      categoryName: category?.name || '',
+      categorySlug: category?.slug || '',
       supportsOptions: category?.supportsOptions !== false,
       listingAttributes: {},
       basePrice: category?.supportsOptions === false ? current.basePrice : '',
@@ -317,6 +325,7 @@ export default function ServiceEditorModal({
     try {
       const payload = buildServicePayload({
         ...form,
+        categoryId: String(form.categoryId || selectedCategory?._id || selectedCategory?.id || ''),
         contactDetails: {
           phoneE164: form.contactDetails.phoneE164,
           phoneIso: form.contactDetails.phoneIso,
@@ -325,6 +334,11 @@ export default function ServiceEditorModal({
         },
         supportsOptions,
       }, { category: selectedCategory });
+      if (!payload.categoryId) {
+        setError('Select a service category.');
+        setSaving(false);
+        return;
+      }
 
       let saved;
       const serviceId = service?._id || service?.id;
@@ -387,12 +401,20 @@ export default function ServiceEditorModal({
           <Panel title="Category & basics">
             <SelectField
               label="Category"
-              value={form.categoryId}
+              value={String(form.categoryId || '')}
               options={categorySelectOptions(categories)}
               onChange={onCategoryChange}
               placeholder="Select category"
             />
-            {selectedCategory?.group ? <Text style={styles.hint}>Group: {selectedCategory.group}</Text> : null}
+            {selectedCategory ? (
+              <Text style={styles.hint}>
+                {selectedCategory.name}
+                {selectedCategory.group ? ` · ${selectedCategory.group}` : ''}
+                {selectedCategory.slug ? ` · ${selectedCategory.slug}` : ''}
+              </Text>
+            ) : form.categoryName ? (
+              <Text style={styles.hint}>{form.categoryName}{form.categorySlug ? ` · ${form.categorySlug}` : ''}</Text>
+            ) : null}
             <TextField label="Title" value={form.title} onChangeText={(text) => setField('title', text)} />
             <MultilineField label="Description" value={form.description} onChangeText={(text) => setField('description', text)} />
             <SelectField
