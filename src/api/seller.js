@@ -170,7 +170,7 @@ export async function completeVerifiedSellerBooking({ bookingId, code }) {
   const response = await apiFetchFirst(['/seller/bookings/complete-verified', '/hotel/bookings/complete-verified'], {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookingId, code }),
+    body: JSON.stringify({ bookingId, code, confirmRemainingPaid: true }),
     timeoutMs: 15000,
   });
   const data = await readJson(response);

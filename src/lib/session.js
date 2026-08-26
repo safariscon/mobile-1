@@ -71,8 +71,11 @@ export function isPayableBooking(booking) {
 }
 
 export function getAmountDue(booking) {
-  const remaining = Number(booking?.remainingBalance);
-  if (Number.isFinite(remaining) && remaining > 0) return remaining;
+  if (booking?.depositPaid || ['deposit_paid', 'deposit-paid', 'paid'].includes(booking?.paymentStatus)) {
+    return Math.max(0, Number(booking?.remainingBalance || booking?.remainingAmount || 0));
+  }
+  const deposit = Number(booking?.depositAmount || 0);
+  if (deposit > 0) return deposit;
   const listed = Number(booking?.totalPrice || booking?.bookingDetails?.listedPriceRwf || 0);
   const paid = Number(booking?.amountPaid || 0);
   return Math.max(0, listed - paid) || listed;

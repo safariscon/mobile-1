@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import AvailabilityTable from './AvailabilityTable';
 import ServiceLocationMap from './ServiceLocationMap';
 import { formatMoney, serviceApprovalStatus } from '../lib/serviceMapper';
+import { domainCopy, remainingPaymentLabel } from '../features/domain/registry';
 import useThemedStyles from '../theme/useThemedStyles';
 
 function asList(value) {
@@ -42,21 +43,98 @@ function StatusBadge({ status }) {
   );
 }
 
+function humanize(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function ChipRow({ items }) {
+  const { styles } = useThemedStyles(createStyles);
+  const list = asList(items);
+  if (!list.length) return null;
+  return (
+    <View style={styles.chipRow}>
+      {list.map((item) => (
+        <View key={String(item)} style={styles.chip}>
+          <Text style={styles.chipText}>{humanize(item)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function AvailabilityBlock({ availability, option }) {
+  const source = availability || {};
+  const from = source.windowStartDate || option?.availableFrom;
+  const to = source.windowEndDate || option?.availableTo;
+  const days = source.daysOfWeek?.length ? source.daysOfWeek : option?.availableDays;
+  if (!source.isAnytime && !from && !to && !asList(days).length && !source.capacityTotal) return null;
+  return (
+    <View style={{ marginTop: 8 }}>
+      <DetailRow label="Anytime" value={source.isAnytime ? 'Yes' : ''} />
+      <DetailRow label="Available from" value={from} />
+      <DetailRow label="Available until" value={to} />
+      <DetailRow label="Days" value={asList(days).map(humanize).join(', ')} />
+      <DetailRow label="Start time" value={source.dayStartTime || option?.availableStartTime} />
+      <DetailRow label="End time" value={source.dayEndTime || option?.availableEndTime} />
+      <DetailRow label="Total capacity" value={source.capacityTotal} />
+      <DetailRow label="Remaining" value={source.capacityRemaining} />
+    </View>
+  );
+}
+
 function OptionCard({ option, index }) {
   const { styles } = useThemedStyles(createStyles);
+  const attributes = option.attributes || option.cells?.attributes || {};
+  const beds = asList(attributes.beds).filter((bed) => bed?.type && Number(bed.count) > 0);
+  const perGuest = attributes.pricingMode === 'per_guest';
   return (
     <View style={styles.optionCard}>
       <View style={styles.optionHeader}>
         <Text style={styles.optionIndex}>Option {index + 1}</Text>
-        <Text style={styles.optionName}>{option.name || option.optionName || `Option ${index + 1}`}</Text>
+        <Text style={styles.optionName}>{option.name || attributes.unitName || option.optionName || `Option ${index + 1}`}</Text>
       </View>
       <View style={styles.priceBox}>
         <Text style={styles.priceLabel}>Price</Text>
         <Text style={styles.priceValue}>{option.priceText || formatMoney(option.price)}</Text>
-        {option.priceType || option.cells?.priceType ? (
-          <Text style={styles.priceMeta}>{option.priceType || option.cells?.priceType}</Text>
+        {option.priceType || option.pricingType || option.cells?.priceType ? (
+          <Text style={styles.priceMeta}>{option.priceType || option.pricingType || option.cells?.priceType}</Text>
         ) : null}
       </View>
+      {attributes.maxGuests || attributes.bedrooms || attributes.unitType ? (
+        <>
+          <DetailRow label="Unit type" value={humanize(attributes.unitType)} />
+          <DetailRow label="Max guests" value={attributes.maxGuests} />
+          <DetailRow label="Bedrooms" value={attributes.bedrooms} />
+          <DetailRow label="Private bathroom" value={attributes.bathroomPrivate === false ? 'No' : attributes.bathroomPrivate ? 'Yes' : ''} />
+        </>
+      ) : null}
+      <DetailRow label={attributes.quantity ? 'Number of this type' : 'Quantity'} value={attributes.quantity || option.capacity || option.maximumCapacity} />
+      {beds.length ? (
+        <View style={styles.group}>
+          <Text style={styles.groupTitle}>Beds</Text>
+          <ChipRow items={beds.map((bed) => `${bed.count} × ${humanize(bed.type)}`)} />
+        </View>
+      ) : null}
+      {attributes.maxGuests || attributes.bedrooms || attributes.unitType ? (
+        <DetailRow
+          label="How price is charged"
+          value={perGuest ? 'Per guest per night. 2 guests pay 2 × this price.' : 'Whole unit per night. Guest count is capacity, not a second price.'}
+        />
+      ) : null}
+      {asList(attributes.roomAmenities).length ? (
+        <View style={styles.group}>
+          <Text style={styles.groupTitle}>Room amenities</Text>
+          <ChipRow items={attributes.roomAmenities} />
+        </View>
+      ) : null}
+      {asList(attributes.bathroomAmenities).length ? (
+        <View style={styles.group}>
+          <Text style={styles.groupTitle}>Bathroom amenities</Text>
+          <ChipRow items={attributes.bathroomAmenities} />
+        </View>
+      ) : null}
       {asList(option.pricingRules).length ? (
         <View style={styles.group}>
           <Text style={styles.groupTitle}>Pricing rules</Text>
@@ -65,24 +143,9 @@ function OptionCard({ option, index }) {
           ))}
         </View>
       ) : null}
-      {asList(option.availabilityRules).length ? (
-        <View style={styles.group}>
-          <Text style={styles.groupTitle}>Availability</Text>
-          {option.availabilityRules.map((item) => (
-            <DetailRow key={`${option.id}-${item.key}`} label={item.label} value={item.value} />
-          ))}
-        </View>
-      ) : null}
+      <AvailabilityBlock availability={option.availability} option={option} />
       {option.details ? <Text style={styles.optionDetails}>{option.details}</Text> : null}
-      {asList(option.amenities).length ? (
-        <View style={styles.chipRow}>
-          {option.amenities.map((item) => (
-            <View key={item} style={styles.chip}>
-              <Text style={styles.chipText}>{item}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      {asList(option.amenities).length ? <ChipRow items={option.amenities} /> : null}
       {asList(option.extraCells).map((item) => (
         <DetailRow key={`${option.id}-${item.key}`} label={item.label} value={item.value} />
       ))}
@@ -95,6 +158,7 @@ export default function ServiceDetailsView({
   service,
   loading = false,
   showProvider = false,
+  showPrivateFields = false,
   title = 'Service details',
   onClose,
   footer,
@@ -106,7 +170,13 @@ export default function ServiceDetailsView({
   const normalized = service || {};
   const approvalStatus = serviceApprovalStatus(normalized);
   const images = asList(normalized.imageItems?.length ? normalized.imageItems : normalized.images?.map((url) => ({ url, alt: normalized.title || normalized.name })));
-  const options = asList(normalized.options?.length ? normalized.options : normalized.availabilityTable?.rows);
+  const options = asList(normalized.options?.length ? normalized.options : (normalized.units?.length ? normalized.units : normalized.availabilityTable?.rows));
+  const listing = normalized.listingAttributes || {};
+  const copy = domainCopy(normalized);
+  const identity = listing.hostIdentity || {};
+  const plans = listing.ratePlans || {};
+  const rooms = asList(normalized.rooms);
+  const nestedServices = asList(normalized.nestedServices);
   const bookingFields = asList(normalized.bookingForm?.fields).filter((field) => field.enabled !== false);
   const location = normalized.location || normalized.map || {};
 
@@ -133,13 +203,68 @@ export default function ServiceDetailsView({
             <Section title="Listing">
               <DetailRow label={t('admin.name')} value={normalized.title || normalized.name} />
               <DetailRow label={t('admin.type')} value={normalized.category || normalized.serviceType} />
+              <DetailRow label="Domain" value={[normalized.domain, normalized.subtype].filter(Boolean).join(' · ')} />
               <DetailRow label="Availability" value={normalized.availabilityText || normalized.inventoryStatusLabel || normalized.status} />
               <DetailRow label="Booking mode" value={normalized.bookingMode || 'manual'} />
               <DetailRow label="Price" value={normalized.priceText || formatMoney(normalized.pricing?.amount)} />
               <DetailRow label="Cancel window (hours)" value={normalized.cancelWindowHours || normalized.cancellationPolicy?.windowHours} />
               <DetailRow label="Cancel penalty (%)" value={normalized.cancelPenaltyPercent || normalized.cancellationPolicy?.penaltyPercent} />
+              <DetailRow label="Platform commission (%)" value={normalized.platformCommissionPercent} />
               <DetailRow label={t('admin.descriptionLabel')} value={normalized.description} />
             </Section>
+
+            {copy.kind === 'rental' ? (
+              <Section title="Rental rules">
+                <DetailRow label="Vehicle class" value={listing.vehicleClass} />
+                <DetailRow label="Transmission" value={listing.transmission} />
+                <DetailRow label="Fuel type" value={listing.fuelType} />
+                <DetailRow label="Fuel policy" value={listing.fuelPolicy} />
+                <DetailRow label="Minimum driver age" value={listing.minimumDriverAge} />
+                <DetailRow label="Pickup from" value={listing.pickupTime} />
+                <DetailRow label="Return by" value={listing.returnTime} />
+                <DetailRow label="Minimum rental" value={listing.minRentalDays ? `${listing.minRentalDays} day${Number(listing.minRentalDays) === 1 ? '' : 's'}` : ''} />
+                <DetailRow label="Maximum rental" value={listing.maxRentalDays ? `${listing.maxRentalDays} days` : ''} />
+                <DetailRow label="With driver" value={listing.withDriver == null ? '' : listing.withDriver ? 'Yes' : 'No'} />
+                <DetailRow label="Insurance included" value={listing.insuranceIncluded == null ? '' : listing.insuranceIncluded ? 'Yes' : 'No'} />
+                <DetailRow label="Deposit note" value={listing.depositNote} />
+              </Section>
+            ) : copy.kind === 'stay' && Object.keys(listing).length ? (
+              <Section title="Property details">
+                <DetailRow label="Property type" value={humanize(listing.propertyKind)} />
+                <DetailRow label="Star rating" value={humanize(listing.starRating)} />
+                <DetailRow label="Listing scale" value={humanize(listing.listingScale)} />
+                <DetailRow label="Check-in" value={[listing.checkInFrom || listing.checkInTime, listing.checkInUntil].filter(Boolean).join(' – ')} />
+                <DetailRow label="Check-out" value={[listing.checkOutFrom, listing.checkOutUntil || listing.checkOutTime].filter(Boolean).join(' – ')} />
+                <DetailRow label="Allows children" value={humanize(listing.allowsChildren)} />
+                <DetailRow label="Allows pets" value={humanize(listing.allowsPets)} />
+                <DetailRow label="First check-in" value={listing.firstCheckInMode === 'date' ? listing.firstCheckInDate : humanize(listing.firstCheckInMode)} />
+                <DetailRow label="Booking horizon (days)" value={listing.availabilityHorizonDays} />
+                <DetailRow label="Long stays" value={listing.allowLongStays ? `Up to ${listing.maxStayNights || 90} nights` : 'Maximum 30 nights'} />
+                <DetailRow label="Calendar import URL" value={listing.calendarImportUrl} />
+                <DetailRow label="Non-refundable" value={plans.nonRefundable?.enabled ? `${plans.nonRefundable.discountPercent}% off` : ''} />
+                <DetailRow label="Weekly rate" value={plans.weekly?.enabled ? `${plans.weekly.discountPercent}% off, min ${plans.weekly.minNights} nights` : ''} />
+              </Section>
+            ) : null}
+
+            {(identity.legalName || identity.companyName || identity.idNumber) ? (
+              <Section title="Host identity">
+                <DetailRow label="Legal name" value={identity.legalName} />
+                <DetailRow label="Host type" value={identity.isCompany ? 'Company' : 'Individual'} />
+                <DetailRow label="Company name" value={identity.companyName} />
+                <DetailRow label="ID type" value={humanize(identity.idType)} />
+                <DetailRow label={showPrivateFields ? 'ID / registration number' : 'Identity document on file'} value={showPrivateFields ? identity.idNumber : (identity.idNumber || identity.hasIdentityDocument ? 'Yes' : 'No')} />
+                <DetailRow label="Billing address" value={identity.billingSameAsProperty === false ? identity.billingAddress : 'Same as property'} />
+              </Section>
+            ) : null}
+
+            {(normalized.paymentPolicy || normalized.cancellationPolicy?.type) ? (
+              <Section title="Payment and cancellation">
+                <DetailRow label="Deposit" value={normalized.paymentPolicy?.depositPercentage != null ? `${normalized.paymentPolicy.depositPercentage}%` : ''} />
+                <DetailRow label="Remaining payment" value={remainingPaymentLabel(normalized.paymentPolicy?.remainingPaymentMethod, normalized)} />
+                <DetailRow label="Cancellation type" value={normalized.cancellationPolicy?.type} />
+                <DetailRow label="Free cancellation (hours)" value={normalized.cancellationPolicy?.freeCancellationUntilHours} />
+              </Section>
+            ) : null}
 
             <Section title="Images">
               {images.length ? (
@@ -173,13 +298,47 @@ export default function ServiceDetailsView({
               </Section>
             ) : null}
 
-            <Section title="Options / prices">
+            {normalized.availability ? (
+              <Section title="Listing availability">
+                <AvailabilityBlock availability={normalized.availability} />
+              </Section>
+            ) : null}
+
+            <Section title={copy.kind === 'stay' ? 'Rooms / units' : copy.kind === 'rental' ? 'Vehicle types' : 'Options / prices'}>
               {options.length ? options.map((option, index) => (
                 <OptionCard key={option.id || index} option={option} index={index} />
               )) : (
                 <AvailabilityTable table={normalized.availabilityTable} emptyText={t('serviceDetails.emptyOptions')} />
               )}
             </Section>
+
+            {copy.kind === 'stay' && rooms.length ? (
+              <Section title="Physical rooms">
+                {rooms.map((room) => (
+                  <View key={room.id || room._id || room.roomNumber} style={styles.optionCard}>
+                    <Text style={styles.optionName}>{room.roomNumber || room.type || 'Room'}</Text>
+                    <DetailRow label="Type" value={room.roomType || room.type} />
+                    <DetailRow label="Price" value={room.pricePerNight || room.price ? formatMoney(room.pricePerNight || room.price) : ''} />
+                    <DetailRow label="Adults" value={room.capacity?.adults} />
+                    <DetailRow label="Children" value={room.capacity?.children} />
+                    <ChipRow items={room.amenities} />
+                  </View>
+                ))}
+              </Section>
+            ) : null}
+
+            {nestedServices.length ? (
+              <Section title="Nested packages">
+                {nestedServices.map((item) => (
+                  <View key={item.id || item._id} style={styles.optionCard}>
+                    <Text style={styles.optionName}>{item.name}</Text>
+                    <DetailRow label="Category" value={item.category} />
+                    <DetailRow label="Price" value={item.price ? formatMoney(item.price) : ''} />
+                    <DetailRow label="Details" value={item.description} />
+                  </View>
+                ))}
+              </Section>
+            ) : null}
 
             <Section title="Booking form fields">
               {bookingFields.length ? bookingFields.map((field) => (

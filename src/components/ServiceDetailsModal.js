@@ -2,18 +2,27 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
-import { fetchServiceDetails, fetchMarketplaceSettings, resolveBookingMode, submitBookingRequest, verifyRebookId } from '../api/services';
+import { fetchServiceDetails, fetchMarketplaceSettings, fetchServiceAvailability, resolveBookingMode, submitBookingRequest, verifyRebookId } from '../api/services';
 import AvailabilityTable from './AvailabilityTable';
 import { collectImages, inventoryStatusLabel } from '../lib/serviceMapper';
 import { useAuth } from '../context/AuthContext';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import { getVisiblePromotion } from '../lib/promotion';
 import { locationToText } from '../lib/geo';
-import { DateField, MultilineField, NumberField, SelectField, TextField, TimeField } from './FormFields';
-import SchemaFields, { validateSchemaValues } from './SchemaFields';
+import { MultilineField, NumberField, SelectField, TextField } from './FormFields';
+import { BookingFields } from '../features/domain/DomainFields';
+import {
+  emptyBookingValues,
+  firstError,
+  mapBookingToSchedule,
+  resolveDomain,
+  validateBookingClient,
+} from '../features/domain/registry';
 import PaymentSheet from './PaymentSheet';
-import WorldLocationFields from './WorldLocationFields';
+import ServiceLocationPicker from './ServiceLocationPicker';
+import BookingPassCard from './BookingPassCard';
 import { lightColors } from '../theme/colors';
+import { pinIsSet } from '../lib/bookingVerification';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -313,6 +322,7 @@ const initialBookingValues = (user) => ({
 function BookingRequestForm({ service, user, onBack, onClose }) {
   const { t } = useTranslation();
   const options = asList(service?.options);
+  const domain = resolveDomain(service);
   const bookingSchema = asList(service?.schemaSnapshot?.bookingFieldSchema);
   const customFields = !bookingSchema.length && service?.bookingForm?.isPublished
     ? asList(service.bookingForm.fields).filter((field) => field.enabled !== false)
@@ -325,13 +335,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     });
     return defaults;
   });
-  const [bookingAttributes, setBookingAttributes] = useState(() => {
-    const defaults = {};
-    bookingSchema.forEach((field) => {
-      defaults[field.id] = field.type === 'checkbox' || field.type === 'boolean' ? false : field.defaultValue || '';
-    });
-    return defaults;
-  });
+  const [bookingAttributes, setBookingAttributes] = useState(() => emptyBookingValues(domain));
   const [selectedOptionId, setSelectedOptionId] = useState(getOptionValue(options[0]));
   const [submitting, setSubmitting] = useState(false);
   const [verifyingRebook, setVerifyingRebook] = useState(false);
@@ -340,6 +344,10 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
   const [success, setSuccess] = useState('');
   const [marketplaceSettings, setMarketplaceSettings] = useState({ bookingMode: 'manual', bookingRules: [] });
   const [payBooking, setPayBooking] = useState(null);
+  const [paidBooking, setPaidBooking] = useState(null);
+  const [step, setStep] = useState(1);
+  const [pin, setPin] = useState({ latitude: '', longitude: '' });
+  const [availability, setAvailability] = useState(null);
   const selectedOption = options.find((option) => getOptionValue(option) === selectedOptionId) || options[0];
   const locationText = service?.generalLocation || service?.location?.generalLocation || t('common.rwanda');
   const bookingMode = resolveBookingMode(marketplaceSettings, service);
@@ -352,29 +360,47 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const hotelId = service?.hotelId || service?.id;
+    const optionId = getOptionValue(selectedOption);
+    if (!hotelId) return undefined;
+    let active = true;
+    fetchServiceAvailability(hotelId, optionId, {
+      checkIn: bookingAttributes.checkIn,
+      checkOut: bookingAttributes.checkOut,
+    }).then((data) => {
+      if (active) setAvailability(data);
+    }).catch(() => {
+      if (active) setAvailability(null);
+    });
+    return () => { active = false; };
+  }, [service?.hotelId, service?.id, selectedOptionId, bookingAttributes.checkIn, bookingAttributes.checkOut]);
+
   const updateValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   const updateCustomValue = (key, value) => setCustomValues((current) => ({ ...current, [key]: value }));
-  const updateBookingAttribute = (key, value) => setBookingAttributes((current) => ({ ...current, [key]: value }));
 
-  const validate = () => {
+  const validateStay = () => {
     if (!service?.hotelId && !service?.id) return t('bookingForm.unavailable');
     if (['unavailable', 'inactive', 'sold-out'].includes(String(service?.status || service?.availabilityStatus || '').toLowerCase())) return t('bookingForm.unavailable');
     if (!selectedOption) return t('bookingForm.chooseOptionError');
+    const schemaError = firstError(validateBookingClient(domain, bookingAttributes, {
+      listing: service,
+      inventory: selectedOption || {},
+    }));
+    if (schemaError) return schemaError;
+    if (availability?.remaining != null && Number(availability.remaining) <= 0) {
+      return t('bookingForm.fullyBooked');
+    }
+    return '';
+  };
+
+  const validateDetails = () => {
     if (!values.fullName.trim()) return t('bookingForm.fullNameError');
     if (!/^\+?[0-9][0-9\s-]{7,18}$/.test(values.phone.trim())) return t('bookingForm.phoneError');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) return t('bookingForm.emailError');
-    if (!values.bookingDate.trim()) return t('bookingForm.dateError');
-    if (!values.endDate.trim()) return 'End booking date is required.';
-    if (new Date(values.endDate) < new Date(values.bookingDate)) {
-      return 'End date cannot be before booking date.';
-    }
-    if (!values.startTime.trim() || !values.endTime.trim()) return 'Start time and end time are required.';
-    if (Math.max(1, Number(values.numberOfPeople) || 0) < 1 || Math.max(1, Number(values.quantity) || 0) < 1) return 'People and quantity must be at least 1.';
-    if (!values.customerCountry || !(values.customerCity || '').trim()) return 'Country and city are required.';
+    if (Math.max(1, Number(values.quantity) || 0) < 1) return 'Quantity must be at least 1.';
+    if (!pinIsSet(pin)) return t('bookingForm.mapPinError');
     if (values.rebookId.trim() && verifiedRebookId !== values.rebookId.trim()) return 'Verify the Re-book ID before submitting.';
-    if (!values.agreeToTerms) return t('bookingForm.termsError');
-    const schemaError = validateSchemaValues(bookingSchema, bookingAttributes);
-    if (schemaError) return schemaError;
     const missingCustom = customFields.find((field) => {
       if (!field.required) return false;
       const value = customValues[field.id];
@@ -383,6 +409,21 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     });
     if (missingCustom) return t('bookingForm.customRequired', { label: missingCustom.label });
     return '';
+  };
+
+  const validatePayment = () => {
+    if (!values.agreeToTerms) return t('bookingForm.termsError');
+    return '';
+  };
+
+  const goNext = () => {
+    const message = step === 1 ? validateStay() : validateDetails();
+    if (message) {
+      setError(message);
+      return;
+    }
+    setError('');
+    setStep((current) => current + 1);
   };
 
   const handleVerifyRebook = async () => {
@@ -409,32 +450,42 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
   const handleSubmit = async () => {
     setError('');
     setSuccess('');
-    const validationError = validate();
+    const validationError = validateStay() || validateDetails() || validatePayment();
     if (validationError) {
+      if (validateStay()) setStep(1);
+      else if (validateDetails()) setStep(2);
+      else setStep(3);
       setError(validationError);
       return;
     }
 
     setSubmitting(true);
     try {
+      const schedule = mapBookingToSchedule(domain, bookingAttributes);
       const quantity = Math.max(1, Number(values.quantity) || 1);
-      const people = Math.max(1, Number(values.numberOfPeople) || 1);
+      const people = Math.max(1, Number(schedule.numberOfPeople || values.numberOfPeople) || 1);
       const customResponses = customFields.map((field) => ({
         fieldId: field.id,
         label: field.label,
         type: field.type,
         value: customValues[field.id],
       }));
-      const checkIn = values.bookingDate || null;
-      const checkOut = values.endDate || values.bookingDate || null;
+      const checkIn = schedule.startDate || values.bookingDate || null;
+      const checkOut = schedule.endDate || values.endDate || schedule.startDate || values.bookingDate || null;
       const customerLocationDetails = {
-        country: values.customerCountry,
-        countryCode: values.customerCountryCode,
-        state: values.customerState,
-        province: values.customerState,
-        city: values.customerCity,
-        district: values.customerCity,
-        sector: values.customerSector.trim(),
+        country: values.customerCountry || pin.country || 'Rwanda',
+        countryCode: values.customerCountryCode || pin.countryCode || 'RW',
+        state: values.customerState || pin.state,
+        province: values.customerState || pin.state,
+        city: values.customerCity || pin.city,
+        district: values.customerCity || pin.city,
+        sector: values.customerSector.trim() || pin.area || '',
+        latitude: Number(pin.latitude),
+        longitude: Number(pin.longitude),
+        latitudeRaw: String(pin.latitudeRaw || pin.latitude || ''),
+        longitudeRaw: String(pin.longitudeRaw || pin.longitude || ''),
+        fullAddress: pin.fullAddress || pin.formattedAddress || values.customerLocation.trim(),
+        formattedAddress: pin.formattedAddress || pin.fullAddress || values.customerLocation.trim(),
       };
       const customerLocationText = values.customerLocation.trim() || locationToText(customerLocationDetails);
 
@@ -451,8 +502,8 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
         checkOut,
         bookingDate: checkIn,
         endBookingDate: checkOut,
-        startTime: values.startTime,
-        endTime: values.endTime,
+        startTime: schedule.startTime || values.startTime,
+        endTime: schedule.endTime || values.endTime,
         totalPrice: 0,
         destinationPlace: service.title || service.name || t('bookingForm.selectedService'),
         destinationLocation: locationText,
@@ -468,11 +519,11 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           fullName: values.fullName.trim(),
           email: values.email.trim().toLowerCase(),
           phone: values.phone.trim(),
-          bookingDate: values.bookingDate,
-          endDate: values.endDate || values.bookingDate,
-          endBookingDate: values.endDate || values.bookingDate,
-          startTime: values.startTime,
-          endTime: values.endTime,
+          bookingDate: checkIn,
+          endDate: checkOut,
+          endBookingDate: checkOut,
+          startTime: schedule.startTime || values.startTime,
+          endTime: schedule.endTime || values.endTime,
           numberOfPeople: people,
           quantity,
           totalConsumptionUnits: quantity * people,
@@ -498,7 +549,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           : 'Booking request sent. Wait for provider review before paying.');
       }
     } catch (requestError) {
-      setError(t('bookingForm.submitFailed'));
+      setError(requestError.message || t('bookingForm.submitFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -508,7 +559,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContent}>
         <View style={styles.formTopBar}>
-          <TouchableOpacity onPress={onBack} style={styles.formIconButton} activeOpacity={0.82}>
+          <TouchableOpacity onPress={step > 1 ? () => setStep((current) => current - 1) : onBack} style={styles.formIconButton} activeOpacity={0.82}>
             <Feather name="arrow-left" size={20} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity onPress={onClose} style={styles.formIconButton} activeOpacity={0.82}>
@@ -516,29 +567,18 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.formTitle}>{t('bookingForm.title')}</Text>
-        <Text style={styles.formSubtitle}>{t('bookingForm.subtitle')}</Text>
+        <Text style={styles.formTitle}>{service?.title || service?.name || t('bookingForm.title')}</Text>
+        <View style={styles.stepRow}>
+          {['Stay', 'Details', 'Pay'].map((label, index) => (
+            <View key={label} style={[styles.stepChip, step === index + 1 && styles.stepChipActive]}>
+              <Text style={[styles.stepChipText, step === index + 1 && styles.stepChipTextActive]}>{index + 1}. {label}</Text>
+            </View>
+          ))}
+        </View>
 
         <View style={styles.bookingCard}>
-          <Text style={styles.bookingServiceName}>{service?.title || service?.name || t('bookingForm.selectedService')}</Text>
-          <View style={styles.locationRow}>
-            <Feather name="map-pin" size={13} color={colors.muted} />
-            <Text style={styles.locationText}>{locationText}</Text>
-          </View>
-
-          <View style={styles.rulesBox}>
-            <Text style={styles.rulesTitle}>{t('bookingForm.rules')}</Text>
-            <Text style={styles.rulesText}>{t('bookingForm.ruleDeposit')}</Text>
-            <Text style={styles.rulesText}>{t('bookingForm.rulePrivacy')}</Text>
-            <Text style={styles.rulesText}>{bookingMode === 'automatic' ? 'This listing can be paid immediately after submit.' : 'This listing waits for provider review before payment.'}</Text>
-            {(marketplaceSettings.bookingRules || []).filter(Boolean).map((rule) => (
-              <Text key={rule} style={styles.rulesText}>{rule}</Text>
-            ))}
-            {!!service?.bookingRules?.cancellationPolicy?.description && (
-              <Text style={styles.rulesText}>{service.bookingRules.cancellationPolicy.description}</Text>
-            )}
-          </View>
-
+          {step === 1 && !paidBooking ? (
+            <>
           <SelectField
             label={t('bookingForm.chooseService')}
             value={selectedOptionId}
@@ -548,49 +588,49 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
               description: option.priceText || t('serviceDetails.contactForPrice'),
             }))}
             onChange={setSelectedOptionId}
-            placeholder="Select from the seller's table"
+            placeholder="Select option"
           />
-
-          <TextField label={t('bookingForm.fullName')} value={values.fullName} onChangeText={(text) => updateValue('fullName', text)} placeholder={t('bookingForm.fullNamePlaceholder')} />
-          <TextField label={t('bookingForm.phone')} value={values.phone} onChangeText={(text) => updateValue('phone', text)} placeholder={t('bookingForm.phonePlaceholder')} keyboardType="phone-pad" />
-          <TextField label={t('bookingForm.email')} value={values.email} onChangeText={(text) => updateValue('email', text)} placeholder={t('bookingForm.emailPlaceholder')} keyboardType="email-address" autoCapitalize="none" />
-
-          <View style={styles.twoColumn}>
-            <DateField label={t('bookingForm.bookingDate')} value={values.bookingDate} onChange={(value) => updateValue('bookingDate', value)} placeholder={t('bookingForm.datePlaceholder')} minimumDate={new Date()} />
-            <DateField label={t('bookingForm.endDate')} value={values.endDate} onChange={(value) => updateValue('endDate', value)} placeholder={t('bookingForm.datePlaceholder')} minimumDate={values.bookingDate ? new Date(values.bookingDate) : new Date()} />
+          {availability?.remaining != null ? (
+            <Text style={styles.availabilityHint}>
+              {Number(availability.remaining) <= 0 ? t('bookingForm.fullyBooked') : `${availability.remaining} left`}
+            </Text>
+          ) : null}
+          <View style={{ marginBottom: 8 }}>
+            <BookingFields category={service} values={bookingAttributes} onChange={setBookingAttributes} />
           </View>
+            </>
+          ) : null}
 
-          <View style={styles.twoColumn}>
-            <TimeField label={t('bookingForm.startTime')} value={values.startTime} onChange={(value) => updateValue('startTime', value)} placeholder={t('bookingForm.timePlaceholder')} />
-            <TimeField label={t('bookingForm.endTime')} value={values.endTime} onChange={(value) => updateValue('endTime', value)} placeholder={t('bookingForm.timePlaceholder')} />
+          {step === 2 && !paidBooking ? (
+            <>
+          <TextField label={t('bookingForm.fullName')} value={values.fullName} onChangeText={(text) => updateValue('fullName', text)} />
+          <TextField label={t('bookingForm.phone')} value={values.phone} onChangeText={(text) => updateValue('phone', text)} keyboardType="phone-pad" />
+          <TextField label={t('bookingForm.email')} value={values.email} onChangeText={(text) => updateValue('email', text)} keyboardType="email-address" autoCapitalize="none" />
+          <NumberField label={t('bookingForm.quantity')} value={values.quantity} onChangeText={(text) => updateValue('quantity', text)} />
+          <ServiceLocationPicker value={pin} onChange={setPin} />
+          <View style={styles.rebookRow}>
+            <View style={{ flex: 1 }}>
+              <TextField label="Re-book ID" value={values.rebookId} onChangeText={(text) => { updateValue('rebookId', text); setVerifiedRebookId(''); }} autoCapitalize="characters" />
+            </View>
+            {values.rebookId.trim() ? (
+              <TouchableOpacity style={styles.rebookButton} onPress={handleVerifyRebook} disabled={verifyingRebook} activeOpacity={0.84}>
+                {verifyingRebook ? <ActivityIndicator color={colors.white} /> : <Text style={styles.rebookButtonText}>{t('actions.verify')}</Text>}
+              </TouchableOpacity>
+            ) : null}
           </View>
-
-          <View style={styles.twoColumn}>
-            <NumberField label={t('bookingForm.people')} value={values.numberOfPeople} onChangeText={(text) => updateValue('numberOfPeople', text)} />
-            <NumberField label={t('bookingForm.quantity')} value={values.quantity} onChangeText={(text) => updateValue('quantity', text)} />
-          </View>
-
-          <View style={styles.customerLocationBox}>
-            <WorldLocationFields
-              value={{
-                country: values.customerCountry,
-                countryCode: values.customerCountryCode,
-                state: values.customerState,
-                city: values.customerCity,
-                sector: values.customerSector,
-              }}
-              onChange={(location) => setValues((current) => ({
-                ...current,
-                customerCountry: location.country,
-                customerCountryCode: location.countryCode,
-                customerState: location.state,
-                customerCity: location.city,
-                customerSector: location.sector,
-              }))}
+          {customFields.map((field) => (
+            <CustomField
+              key={field.id}
+              field={field}
+              value={customValues[field.id]}
+              onChange={(nextValue) => updateCustomValue(field.id, nextValue)}
             />
-            <TextField label={`${t('bookingForm.pickup')} (optional)`} value={values.customerLocation} onChangeText={(text) => updateValue('customerLocation', text)} placeholder={t('bookingForm.pickupPlaceholder')} />
-          </View>
+          ))}
+            </>
+          ) : null}
 
+          {step === 3 && !paidBooking ? (
+            <>
           <SelectField
             label={t('bookingForm.paymentMethod')}
             value={values.paymentMethod}
@@ -601,66 +641,39 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
             onChange={(method) => updateValue('paymentMethod', method)}
             searchable={false}
           />
-
-          <View style={styles.rebookBox}>
-            <TextField label="Re-book ID (optional)" value={values.rebookId} onChangeText={(text) => {
-              updateValue('rebookId', text);
-              if (verifiedRebookId && verifiedRebookId !== text.trim()) setVerifiedRebookId('');
-            }} placeholder="RBK-2026-00124" autoCapitalize="characters" />
-            <TouchableOpacity style={[styles.secondaryVerifyButton, verifyingRebook && styles.disabledButton]} onPress={handleVerifyRebook} disabled={verifyingRebook} activeOpacity={0.84}>
-              {verifyingRebook ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.secondaryVerifyText}>{verifiedRebookId ? 'Verified' : 'Verify Re-book ID'}</Text>}
-            </TouchableOpacity>
-          </View>
-
-          {bookingSchema.length ? (
-            <View style={{ marginBottom: 8 }}>
-              <Text style={styles.rulesTitle}>Booking details</Text>
-              <SchemaFields
-                fields={bookingSchema}
-                values={bookingAttributes}
-                onChange={updateBookingAttribute}
-              />
-            </View>
-          ) : null}
-
-          {customFields.map((field) => (
-            <CustomField
-              key={field.id}
-              field={field}
-              value={customValues[field.id]}
-              onChange={(nextValue) => updateCustomValue(field.id, nextValue)}
-            />
-          ))}
-
-          <MultilineField
-            label={t('bookingForm.specialRequest')}
-            value={values.specialRequests}
-            onChangeText={(text) => updateValue('specialRequests', text)}
-            placeholder={t('bookingForm.specialPlaceholder')}
-          />
-
           <TouchableOpacity style={styles.checkboxRow} onPress={() => updateValue('agreeToTerms', !values.agreeToTerms)} activeOpacity={0.84}>
             <View style={[styles.checkbox, values.agreeToTerms && styles.checkboxActive]}>
               {values.agreeToTerms ? <Feather name="check" size={14} color={colors.white} /> : null}
             </View>
             <Text style={styles.checkboxText}>{t('bookingForm.terms')}</Text>
           </TouchableOpacity>
+            </>
+          ) : null}
+
+          {paidBooking ? <BookingPassCard booking={paidBooking} /> : null}
 
           {!!error && <Text style={styles.formError}>{error}</Text>}
           {!!success && <Text style={styles.formSuccess}>{success}</Text>}
 
-          <TouchableOpacity style={[styles.requestButton, submitting && styles.disabledButton]} onPress={handleSubmit} disabled={submitting} activeOpacity={0.86}>
-            {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.requestButtonText}>{bookingMode === 'automatic' ? 'Submit and pay now' : t('actions.submitBooking')}</Text>}
-          </TouchableOpacity>
+          {paidBooking ? null : step < 3 ? (
+            <TouchableOpacity style={styles.requestButton} onPress={goNext} activeOpacity={0.86}>
+              <Text style={styles.requestButtonText}>Continue</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={[styles.requestButton, submitting && styles.disabledButton]} onPress={handleSubmit} disabled={submitting} activeOpacity={0.86}>
+              {submitting ? <ActivityIndicator color={colors.white} /> : <Text style={styles.requestButtonText}>{bookingMode === 'automatic' ? 'Submit and pay' : t('actions.submitBooking')}</Text>}
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
       <PaymentSheet
         visible={Boolean(payBooking)}
         booking={payBooking}
         onClose={() => setPayBooking(null)}
-        onPaid={() => {
+        onPaid={(nextBooking) => {
           setPayBooking(null);
-          setSuccess('Payment received. Provider details unlock on your bookings tab.');
+          setPaidBooking(nextBooking);
+          setSuccess(nextBooking?.bookingCode || t('customerBookings.unlocked'));
         }}
       />
     </View>
@@ -802,6 +815,29 @@ const createStyles = (colors) => StyleSheet.create({
     padding: 16,
     paddingBottom: 30,
   },
+  stepRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 8 },
+  stepChip: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 999,
+    flex: 1,
+    paddingVertical: 8,
+  },
+  stepChipActive: { backgroundColor: colors.primaryLight },
+  stepChipText: { color: colors.muted, fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  stepChipTextActive: { color: colors.primaryDark },
+  availabilityHint: { color: colors.primary, fontSize: 12, fontWeight: '800', marginBottom: 8 },
+  rebookRow: { alignItems: 'flex-end', flexDirection: 'row', gap: 8 },
+  rebookButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    height: 48,
+    justifyContent: 'center',
+    marginBottom: 12,
+    minWidth: 88,
+    paddingHorizontal: 12,
+  },
+  rebookButtonText: { color: colors.white, fontSize: 12, fontWeight: '800' },
   formTopBar: {
     alignItems: 'center',
     flexDirection: 'row',

@@ -208,7 +208,7 @@ function normalizeLegacyServiceDetails(item, index = 0) {
 
 async function fetchLegacyCatalog({ page, limit, signal }) {
   const query = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
-  const response = await apiFetch(`${endpoints.hotels}?${query}`, { signal, timeoutMs: 8000 });
+      const response = await apiFetch(`${endpoints.hotels}?${query}`, { signal, timeoutMs: 8000, skipAuth: true });
   if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
   const payload = await response.json();
   const paginated = normalizePaginatedPayload(payload, 'hotels');
@@ -233,7 +233,7 @@ export async function fetchServices({ page = 1, limit = 20, signal, force = fals
     const requestSignal = force ? signal : undefined;
     let data;
     try {
-      const response = await apiFetch(`${endpoints.services}?${query}`, { signal: requestSignal, timeoutMs: 8000 });
+      const response = await apiFetch(`${endpoints.services}?${query}`, { signal: requestSignal, timeoutMs: 8000, skipAuth: true });
       if (!response.ok) throw new Error(i18n.t('backend.returned', { status: response.status }));
       const payload = await response.json();
       const paginated = normalizePaginatedPayload(payload, 'services');
@@ -322,6 +322,21 @@ export async function fetchServiceDetails(serviceId, signal) {
   const details = legacyServiceDetailsCache.get(cacheKey);
   if (details) return details;
   throw new Error(i18n.t('backend.returned', { status: response.status }));
+}
+
+export async function fetchServiceAvailability(hotelId, optionId, query = {}) {
+  const params = new URLSearchParams();
+  if (optionId) params.set('optionId', String(optionId));
+  Object.entries(query).forEach(([key, value]) => {
+    if (value != null && value !== '') params.set(key, String(value));
+  });
+  const response = await apiFetch(
+    `/hotels/${encodeURIComponent(hotelId)}/availability?${params.toString()}`,
+    { timeoutMs: 10000, skipAuth: true }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || i18n.t('backend.returned', { status: response.status }));
+  return data;
 }
 
 export async function submitBookingRequest(payload) {

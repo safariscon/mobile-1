@@ -144,6 +144,8 @@
     "setAvailable": "Mettre disponible",
     "setUnavailable": "Mettre indisponible",
     "submitBooking": "Envoyer la demande",
+    "share": "Partager",
+    "scanQr": "Scanner QR",
     "updateBusiness": "Mettre a jour le service",
     "verify": "Verifier",
     "view": "Voir",
@@ -257,6 +259,8 @@
     "fullNameError": "Entrez votre nom complet.",
     "phoneError": "Entrez un numero valide.",
     "emailError": "Entrez un e-mail valide.",
+    "mapPinError": "Placez un point sur la carte.",
+    "fullyBooked": "Cette option est complete pour ces dates.",
     "dateError": "Choisissez une date.",
     "termsError": "Acceptez les conditions.",
     "customRequired": "Completez {{label}}.",
@@ -346,8 +350,15 @@
     "hiddenUntilDeposit": "Cache jusqu'au depot",
     "lockedValue": "Bloque",
     "submittedDetails": "Details envoyes",
-    "payDeposit": "Payer depot 30%",
-    "qrText": "Donnez ce code au vendeur seulement a votre arrivee et payez les 70% restants."
+    "payDeposit": "Payer maintenant",
+    "qrText": "Montrez ce QR a l'arrivee.",
+    "passTitle": "Votre pass",
+    "pdf": "PDF"
+  },
+  "verify": {
+    "paid": "Paye",
+    "unpaid": "Impaye",
+    "remaining": "Reste"
   },
   "seller": {
     "workspace": "Espace vendeur",

@@ -144,6 +144,8 @@
     "setAvailable": "Bishyire available",
     "setUnavailable": "Bishyire not available",
     "submitBooking": "Ohereza reservation",
+    "share": "Sangiza",
+    "scanQr": "Sikana QR",
     "updateBusiness": "Vugurura serivisi",
     "verify": "Reba",
     "view": "Reba",
@@ -257,6 +259,8 @@
     "fullNameError": "Andika amazina.",
     "phoneError": "Andika phone nyayo.",
     "emailError": "Andika email nyayo.",
+    "mapPinError": "Shyira pin kuri map.",
+    "fullyBooked": "Iyi option nta mwanya usigaye kuri izi tariki.",
     "dateError": "Hitamo itariki ya reservation.",
     "termsError": "Emeza terms za reservation.",
     "customRequired": "Uzuza {{label}}.",
@@ -345,8 +349,15 @@
     "hiddenUntilDeposit": "Bihishwa kugeza deposit yishyuwe",
     "lockedValue": "Locked",
     "submittedDetails": "Details za reservation wohereje",
-    "payDeposit": "Ishyura 30% deposit",
-    "qrText": "Hereza iyi booking code seller ugeze aho kandi wishyura 70% isigaye."
+    "payDeposit": "Ishyura none",
+    "qrText": "Erekana iyi QR ugeze aho.",
+    "passTitle": "Icyangombwa cyawe",
+    "pdf": "PDF"
+  },
+  "verify": {
+    "paid": "Yishyuwe",
+    "unpaid": "Ntiyishyuwe",
+    "remaining": "Asigaye"
   },
   "seller": {
     "workspace": "Seller workspace",

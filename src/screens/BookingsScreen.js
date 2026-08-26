@@ -16,13 +16,16 @@ import {
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import BookingMap from '../components/BookingMap';
-import { API_BASE_URL, apiFetch } from '../config/api';
+import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { toCoordinatePair } from '../lib/directions';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { getAmountDue, isPaidBooking, isPayableBooking } from '../lib/session';
 import PaymentSheet from '../components/PaymentSheet';
+import BookingPassCard from '../components/BookingPassCard';
+import BookingDetailCards from '../components/BookingDetailCards';
 import { cancelBooking } from '../api/services';
+import { bookingReceiptUrl } from '../lib/bookingVerification';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -96,19 +99,6 @@ function getSchedule(booking) {
   const dateText = [formatDate(date), endDate && endDate !== date ? formatDate(endDate) : ''].filter(Boolean).join(' - ');
   const timeText = [startTime, endTime].filter(Boolean).join(' - ');
   return [dateText, timeText].filter((item) => item && item !== '-').join(' at ') || '-';
-}
-
-function getDetailRows(details = {}) {
-  const hiddenKeys = new Set(['agreeToTerms', 'customResponses']);
-  const fixedRows = Object.entries(details)
-    .filter(([key, value]) => !hiddenKeys.has(key) && value !== undefined && value !== null && String(value).trim() !== '')
-    .map(([key, value]) => [formatStatus(key), Array.isArray(value) ? value.join(', ') : String(value)]);
-  const customRows = Array.isArray(details.customResponses)
-    ? details.customResponses
-        .filter((item) => item?.label && item.value !== undefined && item.value !== null && String(item.value).trim() !== '')
-        .map((item) => [item.label, Array.isArray(item.value) ? item.value.join(', ') : String(item.value)])
-    : [];
-  return [...fixedRows, ...customRows];
 }
 
 function statusTone(status) {
@@ -375,6 +365,7 @@ const BookingRow = memo(function BookingRow({ booking, onView }) {
         <Text style={styles.bookingMeta}>{formatDate(booking.createdAt)} - {booking.bookingCode || String(booking._id || '').slice(-8)}</Text>
         <Text style={styles.bookingTitle}>{getBookingTitle(booking, t)}</Text>
         <Text style={styles.bookingLocation}>{getLocation(booking, t)}</Text>
+        {hasDepositPaid(booking) ? <Text style={styles.passHint}>QR pass ready</Text> : null}
       </View>
       <View style={styles.bookingActions}>
         <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
@@ -413,7 +404,6 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
     ? serviceLocation.fullAddress || business?.location || getLocation(booking, t)
     : '';
   const canOpenDirections = locationUnlocked && (destinationCoordinates || destinationAddress);
-  const submittedRows = getDetailRows(details);
   const canRequestChange = depositPaid && !['completed', 'cancelled', 'rejected'].includes(booking.status);
   const canCancelDirect = !['completed', 'cancelled', 'rejected'].includes(booking.status);
 
@@ -469,19 +459,65 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
 
   const openReceipt = () => {
     const receiptId = booking.verificationToken || booking._id;
-    Linking.openURL(`${API_BASE_URL}/receipt/${encodeURIComponent(receiptId)}`).catch(() => {});
+    Linking.openURL(bookingReceiptUrl(receiptId)).catch(() => {});
   };
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.modalScreen}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalContent}>
+        <View style={styles.modalSticky}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{t('customerBookings.details')}</Text>
             <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.84}>
               <Feather name="x" size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
+          <View style={styles.modalActions}>
+            {canPay ? (
+              <TouchableOpacity style={styles.primaryAction} onPress={() => onPay(booking._id)} activeOpacity={0.84}>
+                <Text style={styles.primaryActionText}>{t('customerBookings.payDeposit')}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canCancelDirect ? (
+              <TouchableOpacity style={styles.dangerAction} onPress={submitCancel} disabled={cancelSaving} activeOpacity={0.84}>
+                {cancelSaving ? <ActivityIndicator color={colors.white} /> : <Feather name="x-circle" size={16} color={colors.white} />}
+                <Text style={styles.dangerActionText}>Cancel booking</Text>
+              </TouchableOpacity>
+            ) : null}
+            {depositPaid && booking.verificationToken ? (
+              <TouchableOpacity style={styles.secondaryAction} onPress={openReceipt} activeOpacity={0.84}>
+                <Feather name="file-text" size={16} color={colors.primary} />
+                <Text style={styles.secondaryActionText}>{t('actions.downloadPdf')}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canOpenDirections ? (
+              <TouchableOpacity
+                style={styles.secondaryAction}
+                onPress={() => {
+                  onClose?.();
+                  onOpenRoute?.(booking);
+                }}
+                activeOpacity={0.84}
+              >
+                <Feather name="navigation" size={16} color={colors.primary} />
+                <Text style={styles.secondaryActionText}>{t('actions.getDirections')}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canRequestChange ? (
+              <TouchableOpacity
+                style={styles.secondaryAction}
+                onPress={() => setShowChangeForm((value) => !value)}
+                activeOpacity={0.84}
+              >
+                <Feather name="repeat" size={16} color={colors.primary} />
+                <Text style={styles.secondaryActionText}>Request change</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalContent}>
+          {!!cancelMessage && <Text style={styles.formSuccess}>{cancelMessage}</Text>}
 
           <DetailGrid rows={[
             [t('customerBookings.name'), getBookingTitle(booking, t)],
@@ -499,16 +535,7 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
 
           <View style={[styles.noticeBox, providerUnlocked ? styles.unlockedNotice : styles.lockedNoticeBox]}>
             <Text style={styles.noticeTitle}>{providerUnlocked ? t('customerBookings.unlocked') : t('customerBookings.locked')}</Text>
-            <Text style={styles.noticeText}>
-              {providerUnlocked
-                ? t('customerBookings.unlockedText')
-                : canPay
-                  ? t('customerBookings.payToUnlock', { amount: formatMoney(getDepositAmount(booking), t) })
-                  : t('customerBookings.lockedText')}
-            </Text>
           </View>
-
-          {!!cancelMessage && <Text style={styles.formSuccess}>{cancelMessage}</Text>}
 
           <Text style={styles.sectionTitle}>{t('customerBookings.providerInfo')}</Text>
           <DetailGrid rows={[
@@ -541,55 +568,7 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
             </View>
           ) : null}
 
-          {submittedRows.length ? (
-            <>
-              <Text style={styles.sectionTitle}>{t('customerBookings.submittedDetails')}</Text>
-              <DetailGrid rows={submittedRows} />
-            </>
-          ) : null}
-
-          <View style={styles.modalActions}>
-            {canPay ? (
-              <TouchableOpacity style={styles.primaryAction} onPress={() => onPay(booking._id)} activeOpacity={0.84}>
-                <Text style={styles.primaryActionText}>{t('customerBookings.payDeposit')}</Text>
-              </TouchableOpacity>
-            ) : null}
-            {depositPaid && booking.verificationToken ? (
-              <TouchableOpacity style={styles.secondaryAction} onPress={openReceipt} activeOpacity={0.84}>
-                <Feather name="file-text" size={16} color={colors.primary} />
-                <Text style={styles.secondaryActionText}>{t('actions.downloadPdf')}</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canOpenDirections ? (
-              <TouchableOpacity
-                style={styles.secondaryAction}
-                onPress={() => {
-                  onClose?.();
-                  onOpenRoute?.(booking);
-                }}
-                activeOpacity={0.84}
-              >
-                <Feather name="navigation" size={16} color={colors.primary} />
-                <Text style={styles.secondaryActionText}>{t('actions.getDirections')}</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canRequestChange ? (
-              <TouchableOpacity
-                style={styles.secondaryAction}
-                onPress={() => setShowChangeForm((value) => !value)}
-                activeOpacity={0.84}
-              >
-                <Feather name="repeat" size={16} color={colors.primary} />
-                <Text style={styles.secondaryActionText}>Request change</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canCancelDirect ? (
-              <TouchableOpacity style={styles.secondaryAction} onPress={submitCancel} disabled={cancelSaving} activeOpacity={0.84}>
-                {cancelSaving ? <ActivityIndicator color={colors.primary} /> : <Feather name="x-circle" size={16} color={colors.primary} />}
-                <Text style={styles.secondaryActionText}>Cancel booking</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          <BookingDetailCards details={details} title={t('customerBookings.submittedDetails')} />
 
           {showChangeForm ? (
             <View style={styles.changeForm}>
@@ -624,12 +603,7 @@ function BookingDetailsModal({ booking, visible, onClose, onPay, onOpenRoute, on
             </View>
           ) : null}
 
-          {depositPaid && booking.verificationToken ? (
-            <View style={styles.qrBox}>
-              <Image source={{ uri: `${API_BASE_URL}/qr/${encodeURIComponent(booking.verificationToken)}` }} style={styles.qrImage} />
-              <Text style={styles.qrText}>{t('customerBookings.qrText')}</Text>
-            </View>
-          ) : null}
+          {depositPaid ? <BookingPassCard booking={booking} /> : null}
         </ScrollView>
       </View>
     </Modal>
@@ -827,6 +801,12 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '700',
     marginTop: 3,
   },
+  passHint: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 4,
+  },
   bookingActions: {
     alignItems: 'flex-end',
     gap: 8,
@@ -893,16 +873,23 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
   },
+  modalSticky: {
+    backgroundColor: colors.background,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
   modalContent: {
     padding: 16,
-    paddingTop: 42,
     paddingBottom: 28,
   },
   modalHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   modalTitle: {
     color: colors.text,
@@ -1010,7 +997,6 @@ const createStyles = (colors) => StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 9,
-    marginTop: 18,
   },
   primaryAction: {
     backgroundColor: colors.primary,
@@ -1019,6 +1005,20 @@ const createStyles = (colors) => StyleSheet.create({
     paddingVertical: 11,
   },
   primaryActionText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  dangerAction: {
+    alignItems: 'center',
+    backgroundColor: colors.danger,
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  dangerActionText: {
     color: colors.white,
     fontSize: 13,
     fontWeight: '900',

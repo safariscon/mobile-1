@@ -31,6 +31,11 @@ import {
 import { fetchServiceCategories, serviceCategoryId, serviceCategoryLabel } from '../api/categories';
 import { fetchMarketplaceSettings } from '../api/services';
 import ServiceEditorModal from '../components/ServiceEditorModal';
+import BookingQrScanner from '../components/BookingQrScanner';
+import BookingVerifyForm from '../components/BookingVerifyForm';
+import VerifiedBookingCard from '../components/VerifiedBookingCard';
+import BookingDetailCards from '../components/BookingDetailCards';
+import { extractBookingLookup, formatRwf } from '../lib/bookingVerification';
 import { normalizeServiceDetail } from '../lib/serviceMapper';
 import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
@@ -64,6 +69,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [verifyError, setVerifyError] = useState('');
   const [verifySuccess, setVerifySuccess] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Stats overview states
   const [stats, setStats] = useState({
@@ -276,9 +282,13 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     });
   };
 
-  const handleVerifyCode = async () => {
-    const lookup = String(verificationCode || '').trim();
-    if (!lookup) return;
+  const handleVerifyCode = async (rawLookup = verificationCode) => {
+    const lookup = extractBookingLookup(rawLookup);
+    if (!lookup) {
+      showResult(t('common.error'), t('seller.verifyPlaceholder'), 'error');
+      return;
+    }
+    setVerificationCode(lookup);
     setVerifyLoading(true);
     setVerifyError('');
     setVerifySuccess('');
@@ -286,14 +296,12 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
 
     try {
       let booking;
-      if (lookup.includes('/verify/') || lookup.length > 24) {
-        const tokenPart = lookup.includes('/verify/') ? lookup.split('/verify/').pop() : lookup;
-        booking = await lookupSellerBookingVerification(tokenPart);
-      } else {
+      try {
+        booking = await lookupSellerBookingVerification(lookup);
+      } catch (_lookupError) {
         booking = await verifySellerBookingCode(lookup);
       }
       setVerifiedBooking(booking);
-      showResult(t('common.success'), t('seller.verifyValid'));
     } catch (err) {
       showResult(t('common.error'), err.message || t('backend.invalidCode'), 'error');
     } finally {
@@ -303,21 +311,33 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
 
   const handleCompleteStay = async () => {
     if (!verifiedBooking) return;
-    setVerifyLoading(true);
-    try {
-      await completeVerifiedSellerBooking({
-        bookingId: verifiedBooking.bookingId || verifiedBooking._id || verifiedBooking.id,
-        code: verificationCode.includes('/verify/') ? verificationCode.split('/verify/').pop() : verificationCode,
-      });
-      showResult(t('common.success'), t('seller.checkInDone'));
-      setVerifiedBooking(null);
-      setVerificationCode('');
-      await loadData(true);
-    } catch (err) {
-      showResult(t('common.error'), err.message || t('backend.checkInFailed'), 'error');
-    } finally {
-      setVerifyLoading(false);
-    }
+    const code = verifiedBooking.bookingCode || extractBookingLookup(verificationCode);
+    const remaining = Number(verifiedBooking.remainingAmount || 0);
+    askConfirm({
+      title: t('seller.completeCheckIn'),
+      message: remaining > 0
+        ? `Confirm remaining ${formatRwf(remaining)} was collected, then complete check-in.`
+        : 'Mark this guest as checked in.',
+      confirmLabel: t('seller.completeCheckIn'),
+      onConfirm: async () => {
+        closeDialog();
+        setVerifyLoading(true);
+        try {
+          await completeVerifiedSellerBooking({
+            bookingId: verifiedBooking.bookingId || verifiedBooking._id || verifiedBooking.id,
+            code,
+          });
+          showResult(t('common.success'), t('seller.checkInDone'));
+          setVerifiedBooking(null);
+          setVerificationCode('');
+          await loadData(true);
+        } catch (err) {
+          showResult(t('common.error'), err.message || t('backend.checkInFailed'), 'error');
+        } finally {
+          setVerifyLoading(false);
+        }
+      },
+    });
   };
 
   const confirmUnavailable = async (requestId) => {
@@ -471,29 +491,19 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       </View>
 
       <View style={styles.verifyBox}>
-        <Text style={styles.verifyLabel}>Complete booking with customer code</Text>
-        <View style={styles.inputSearchRow}>
-          <TextInput
-            placeholder="BK-XXXXX"
-            placeholderTextColor={colors.muted}
-            value={verificationCode}
-            onChangeText={setVerificationCode}
-            autoCapitalize="characters"
-            style={styles.verifyInput}
-          />
-          <TouchableOpacity style={styles.verifyBtn} onPress={handleVerifyCode} disabled={verifyLoading} activeOpacity={0.8}>
-            {verifyLoading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.verifyBtnText}>{t('actions.verify')}</Text>}
-          </TouchableOpacity>
-        </View>
-        {verifiedBooking ? (
-          <View style={{ marginTop: 12 }}>
-            <Text style={styles.tableSummary}>{verifiedBooking.customerName || verifiedBooking.touristId?.name || 'Customer'} · {verifiedBooking.serviceName || verifiedBooking.serviceId?.title || 'Service'}</Text>
-            <Text style={styles.tableSummary}>Paid: RWF {Number(verifiedBooking.amountPaid || verifiedBooking.depositAmount || 0).toLocaleString()}</Text>
-            <TouchableOpacity style={[styles.smallPrimaryButton, { marginTop: 10 }]} onPress={handleCompleteStay} disabled={verifyLoading} activeOpacity={0.84}>
-              <Text style={styles.smallPrimaryText}>Mark completed</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        <BookingVerifyForm
+          value={verificationCode}
+          onChangeText={setVerificationCode}
+          onVerify={() => handleVerifyCode()}
+          onScan={() => setScannerOpen(true)}
+          loading={verifyLoading}
+        />
+        <VerifiedBookingCard
+          booking={verifiedBooking}
+          showComplete
+          completing={verifyLoading}
+          onComplete={handleCompleteStay}
+        />
       </View>
 
       {loading && !refreshing && <ActivityIndicator color={colors.primary} size="large" style={{ marginVertical: 20 }} />}
@@ -555,66 +565,31 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   };
 
   const renderVerify = () => (
-    <ScrollView contentContainerStyle={styles.scrollContent}>
-      <Text style={styles.eyebrow}>{t('seller.workspace')}</Text>
-      <Text style={styles.title}>{t('seller.guestVerification')}</Text>
-      <Text style={styles.text}>Enter a booking code or paste a QR /verify/... URL.</Text>
-
-      <View style={styles.verifyBox}>
-        <Text style={styles.verifyLabel}>{t('seller.bookingCode')}</Text>
-        <View style={styles.inputSearchRow}>
-          <TextInput
-            placeholder="BK-XXXXX or /verify/..."
-            placeholderTextColor={colors.muted}
-            value={verificationCode}
-            onChangeText={setVerificationCode}
-            autoCapitalize="none"
-            style={styles.verifyInput}
-          />
-          <TouchableOpacity
-            style={styles.verifyBtn}
-            onPress={handleVerifyCode}
-            disabled={verifyLoading}
-            activeOpacity={0.8}
-          >
-            {verifyLoading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.verifyBtnText}>{t('actions.verify')}</Text>}
-          </TouchableOpacity>
+    <ScrollView contentContainerStyle={styles.verifyPage} keyboardShouldPersistTaps="handled">
+      <View style={styles.verifyHero}>
+        <View style={styles.verifyHeroIcon}>
+          <Feather name="shield" size={20} color={colors.white} />
+        </View>
+        <View style={styles.verifyHeroCopy}>
+          <Text style={styles.verifyTitle}>{t('seller.guestVerification')}</Text>
+          <Text style={styles.verifySubtitle}>{t('seller.bookingCode')}</Text>
         </View>
       </View>
 
-      {verifiedBooking && (
-        <View style={styles.verifiedCard}>
-          <Text style={styles.verifiedCardTitle}>{t('seller.reservationDetails')}</Text>
-          <View style={styles.verifiedRow}>
-            <Text style={styles.infoLabel}>{t('seller.client')}:</Text>
-            <Text style={styles.infoValue}>{verifiedBooking.customerName || verifiedBooking.touristId?.name || t('seller.traveler')}</Text>
-          </View>
-          <View style={styles.verifiedRow}>
-            <Text style={styles.infoLabel}>{t('serviceDetails.service')}:</Text>
-            <Text style={styles.infoValue}>{verifiedBooking.serviceName || verifiedBooking.serviceId?.title || verifiedBooking.bookingDetails?.requestedService || t('seller.standardRoom')}</Text>
-          </View>
-          <View style={styles.verifiedRow}>
-            <Text style={styles.infoLabel}>{t('seller.dates')}:</Text>
-            <Text style={styles.infoValue}>
-              {verifiedBooking.bookingDate ? new Date(verifiedBooking.bookingDate).toLocaleString() : verifiedBooking.checkIn ? new Date(verifiedBooking.checkIn).toLocaleDateString() : '-'}
-            </Text>
-          </View>
-          <View style={styles.verifiedRow}>
-            <Text style={styles.infoLabel}>Paid:</Text>
-            <Text style={[styles.infoValue, { color: colors.success }]}>RWF {Number(verifiedBooking.amountPaid || verifiedBooking.depositAmount || 0).toLocaleString()}</Text>
-          </View>
+      <BookingVerifyForm
+        value={verificationCode}
+        onChangeText={setVerificationCode}
+        onVerify={() => handleVerifyCode()}
+        onScan={() => setScannerOpen(true)}
+        loading={verifyLoading}
+      />
 
-          <TouchableOpacity
-            style={styles.completeCheckInBtn}
-            onPress={handleCompleteStay}
-            disabled={verifyLoading}
-            activeOpacity={0.85}
-          >
-            <Feather name="check-circle" size={20} color={colors.white} />
-            <Text style={styles.completeCheckInText}>{t('seller.completeCheckIn')}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      <VerifiedBookingCard
+        booking={verifiedBooking}
+        showComplete
+        completing={verifyLoading}
+        onComplete={handleCompleteStay}
+      />
     </ScrollView>
   );
 
@@ -916,6 +891,12 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         onApprove={approveReviewedBooking}
         onReject={rejectReviewedBooking}
       />
+      <BookingQrScanner
+        visible={scannerOpen}
+        title={t('seller.guestVerification')}
+        onClose={() => setScannerOpen(false)}
+        onScan={(data) => handleVerifyCode(data)}
+      />
       {dialogNode}
     </View>
   );
@@ -932,7 +913,6 @@ function MetricCard({ label, value }) {
 
 function BookingDetailModal({ booking, onClose }) {
   if (!booking) return null;
-  const responses = Array.isArray(booking.bookingDetails?.customResponses) ? booking.bookingDetails.customResponses : [];
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={styles.modalScreen}>
@@ -953,9 +933,7 @@ function BookingDetailModal({ booking, onClose }) {
           {booking.promotionSnapshot?.title ? (
             <Text style={styles.tableSummary}>Promotion: {booking.promotionSnapshot.title} ({booking.promotionSnapshot.percent}%)</Text>
           ) : null}
-          {responses.map((item, index) => (
-            <Text key={`${item.fieldId || item.label}-${index}`} style={styles.tableSummary}>{item.label}: {String(item.value ?? '')}</Text>
-          ))}
+          <BookingDetailCards details={booking.bookingDetails} />
         </ScrollView>
       </View>
     </Modal>
@@ -980,6 +958,7 @@ function BookingReviewModal({ booking, form, setForm, loading, onClose, onApprov
           <Text style={styles.itemDescription}>
             {(booking.touristId?.name || booking.userId?.name || 'Customer')} · {(booking.serviceId?.title || booking.bookingDetails?.requestedService || 'Service')}
           </Text>
+          <BookingDetailCards details={booking.bookingDetails} />
           <NumberField label="Final price (RWF)" value={String(form.totalPrice)} onChangeText={(text) => setForm((current) => ({ ...current, totalPrice: text }))} />
           <NumberField label="Payment deadline (hours)" value={String(form.paymentDeadlineHours)} onChangeText={(text) => setForm((current) => ({ ...current, paymentDeadlineHours: text }))} />
           <TextField label="Payment reason" value={form.paymentReason} onChangeText={(text) => setForm((current) => ({ ...current, paymentReason: text }))} />
@@ -1592,45 +1571,47 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  verifyPage: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 20,
+  },
+  verifyHero: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  verifyHeroIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  verifyHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  verifyTitle: {
+    color: colors.textStrong || colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  verifySubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
   verifyBox: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
     borderColor: colors.border,
-    padding: 16,
-    marginBottom: 20,
-  },
-  verifyLabel: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  inputSearchRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  verifyInput: {
-    ...baseInputStyle(colors),
-    borderRadius: 10,
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    height: 48,
-    paddingHorizontal: 16,
-  },
-  verifyBtn: {
-    width: 90,
-    height: 48,
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  verifyBtnText: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '800',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 12,
   },
   verifyError: {
     color: colors.danger,

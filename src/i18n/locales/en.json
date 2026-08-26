@@ -144,6 +144,8 @@
     "setAvailable": "Set available",
     "setUnavailable": "Set unavailable",
     "submitBooking": "Submit booking request",
+    "share": "Share",
+    "scanQr": "Scan QR",
     "updateBusiness": "Update service",
     "verify": "Verify",
     "view": "View",
@@ -257,6 +259,8 @@
     "fullNameError": "Enter your full name.",
     "phoneError": "Enter a valid phone number.",
     "emailError": "Enter a valid email.",
+    "mapPinError": "Drop a pin on the map.",
+    "fullyBooked": "This option is fully booked for these dates.",
     "dateError": "Choose a booking date.",
     "termsError": "Agree to the booking terms.",
     "customRequired": "Complete {{label}}.",
@@ -344,8 +348,15 @@
     "hiddenUntilDeposit": "Hidden until payment",
     "lockedValue": "Locked",
     "submittedDetails": "Submitted booking details",
-    "payDeposit": "Pay in full",
-    "qrText": "Show this booking code to the seller when you arrive."
+    "payDeposit": "Pay now",
+    "qrText": "Show this QR at arrival.",
+    "passTitle": "Your booking pass",
+    "pdf": "PDF"
+  },
+  "verify": {
+    "paid": "Paid",
+    "unpaid": "Unpaid",
+    "remaining": "Remaining"
   },
   "seller": {
     "workspace": "Seller workspace",

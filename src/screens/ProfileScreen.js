@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { useAppDialog } from '../components/AppDialog';
@@ -121,7 +121,11 @@ export default function ProfileScreen() {
 
       <View style={styles.profileCard}>
         <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>{initials}</Text>
+          {user?.avatarUrl ? (
+            <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{initials}</Text>
+          )}
         </View>
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{displayName}</Text>
@@ -270,6 +274,11 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.primaryLight,
     marginRight: 16,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    height: 64,
+    width: 64,
   },
   avatarText: {
     color: colors.primary,

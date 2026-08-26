@@ -19,11 +19,14 @@ import { useTheme } from '../context/ThemeContext';
 import { languages, setAppLanguage } from '../i18n';
 import { useAppDialog } from '../components/AppDialog';
 import BookingQrScanner from '../components/BookingQrScanner';
+import BookingVerifyForm from '../components/BookingVerifyForm';
+import VerifiedBookingCard from '../components/VerifiedBookingCard';
+import BookingDetailCards from '../components/BookingDetailCards';
+import { extractBookingLookup } from '../lib/bookingVerification';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import PolicyLinks from '../components/PolicyLinks';
 import ServiceDetailsView from '../components/ServiceDetailsView';
 import {
-  createAdminServiceCategory,
   deleteAdminServiceCategory,
   fetchAdminServiceCategories,
   updateAdminServiceCategory,
@@ -109,14 +112,6 @@ function isServiceProvider(person) {
 
 function providerIdOf(person) {
   return person?.sellerId || person?.providerId || '';
-}
-
-function extractBookingLookup(value) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  const verifyMatch = text.match(/\/verify\/([^/?#]+)/i);
-  if (verifyMatch?.[1]) return decodeURIComponent(verifyMatch[1]);
-  return text.replace(/^.*\/verify\//i, '').trim();
 }
 
 async function readJson(response) {
@@ -541,21 +536,8 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   );
 
   const saveCategory = () => runAction(async () => {
-    if (!categoryForm.name.trim()) throw new Error('Category name is required.');
-    const slug = categoryForm.slug.trim() || categoryForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    await createAdminServiceCategory({
-      name: categoryForm.name.trim(),
-      slug,
-      group: categoryForm.group.trim() || 'Other',
-      supportsOptions: categoryForm.supportsOptions !== false,
-      listingFieldSchema: [],
-      optionFieldSchema: [],
-      bookingFieldSchema: [],
-      defaults: { suggestedCancelWindowHours: 6 },
-    });
-    setCategoryForm({ name: '', slug: '', group: 'Other', supportsOptions: true });
-    await loadServiceCategories();
-  }, 'Category created.');
+    throw new Error('Categories are platform-defined. Activate or deactivate an existing domain instead of creating custom fields.');
+  }, '');
 
   const toggleCategoryActive = (category) => runAction(async () => {
     if (category.isActive === false) {
@@ -682,7 +664,18 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
       },
       t('admin.bookingFound')
     ).then((response) => {
-      if (response?.booking) setVerifiedBooking(response.booking);
+      if (response?.booking) {
+        const booking = response.booking;
+        setVerifiedBooking({
+          ...booking,
+          bookingId: booking.bookingId || booking._id || booking.id,
+          customerName: booking.customerName || booking.user?.name || booking.touristId?.name,
+          customerEmail: booking.customerEmail || booking.user?.email || booking.touristId?.email,
+          customerPhone: booking.customerPhone || booking.user?.phone || booking.touristId?.phone,
+          amountPaid: booking.amountPaid ?? booking.amount,
+          paid: booking.paid,
+        });
+      }
       return response;
     });
   };
@@ -897,24 +890,15 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
             <PrimaryButton label={t('admin.saveRules')} loading={saving} onPress={() => saveMarketplaceSettings()} />
 
             <Text style={styles.settingsGroupTitle}>Service categories</Text>
-            <Field label="Name" value={categoryForm.name} onChangeText={(name) => setCategoryForm((current) => ({ ...current, name }))} />
-            <Field label="Slug" value={categoryForm.slug} onChangeText={(slug) => setCategoryForm((current) => ({ ...current, slug }))} autoCapitalize="none" />
-            <Field label="Group" value={categoryForm.group} onChangeText={(group) => setCategoryForm((current) => ({ ...current, group }))} />
-            <ToggleRow
-              label="Supports options"
-              value={categoryForm.supportsOptions !== false}
-              onChange={(supportsOptions) => setCategoryForm((current) => ({ ...current, supportsOptions }))}
-            />
-            <PrimaryButton label="Create category" loading={saving} onPress={saveCategory} />
+            <Text style={styles.cardText}>
+              Categories are platform-defined (Accommodation, Transport, Experiences, Dining, Venues). Admin can only activate or deactivate them.
+            </Text>
             {serviceCategories.map((category) => (
               <Card key={category._id || category.id || category.slug}>
                 <Text style={styles.cardTitle}>{category.name}</Text>
-                <Text style={styles.cardMeta}>{category.group || 'Other'} · {category.slug}</Text>
+                <Text style={styles.cardMeta}>{(category.domainLabel || category.group || 'Other')} · {category.slug}</Text>
                 <Text style={styles.cardText}>
-                  Options: {category.supportsOptions === false ? 'No (base price)' : 'Yes'} · {category.isActive === false ? 'Inactive' : 'Active'}
-                </Text>
-                <Text style={styles.cardText}>
-                  Fields: listing {(category.listingFieldSchema || []).length} · option {(category.optionFieldSchema || []).length} · booking {(category.bookingFieldSchema || []).length}
+                  {category.inventoryLabelPlural || (category.supportsOptions === false ? 'Single price' : 'Inventory')} · {category.isActive === false ? 'Inactive' : 'Active'}
                 </Text>
                 <View style={styles.actionRow}>
                   <SmallButton
@@ -1113,26 +1097,26 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         )}
 
         {activeTab === 'bookings' && section === 'verify' && (
-          <Section title={t('admin.verifyBooking')}>
-            <Field label={t('admin.verifyLookup')} value={verificationLookup} onChangeText={setVerificationLookup} autoCapitalize="characters" />
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.scanButton} onPress={() => setScannerOpen(true)} activeOpacity={0.84}>
-                <Feather name="camera" size={16} color={colors.primaryDark} />
-                <Text style={styles.scanButtonText}>Scan QR</Text>
-              </TouchableOpacity>
-              <View style={styles.verifyAction}>
-                <PrimaryButton label={t('admin.verifyBooking')} loading={saving} onPress={verifyBooking} />
+          <View style={styles.verifyPage}>
+            <View style={styles.verifyHero}>
+              <View style={styles.verifyHeroIcon}>
+                <Feather name="shield" size={20} color={colors.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.verifyTitle}>{t('admin.verifyBooking')}</Text>
+                <Text style={styles.verifySubtitle}>{t('admin.verifyLookup')}</Text>
               </View>
             </View>
-            {verifiedBooking ? (
-              <Card>
-                <Text style={styles.cardTitle}>{verifiedBooking.bookingCode || verifiedBooking._id}</Text>
-                <Text style={styles.cardText}>{t('admin.customer')}: {verifiedBooking.touristId?.name || verifiedBooking.touristId?.email || '-'}</Text>
-                <Text style={styles.cardText}>{t('admin.status')}: {label(verifiedBooking.status)}</Text>
-                <Text style={styles.cardText}>{t('admin.payment')}: {label(verifiedBooking.paymentStatus)}</Text>
-              </Card>
-            ) : null}
-          </Section>
+            <BookingVerifyForm
+              value={verificationLookup}
+              onChangeText={setVerificationLookup}
+              onVerify={verifyBooking}
+              onScan={() => setScannerOpen(true)}
+              loading={saving}
+              label={t('admin.verifyLookup')}
+            />
+            {verifiedBooking ? <VerifiedBookingCard booking={verifiedBooking} /> : null}
+          </View>
         )}
 
         {activeTab === 'insights' && (
@@ -1209,6 +1193,7 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         service={selectedService}
         loading={saving}
         showProvider
+        showPrivateFields
         title="Service review"
         onClose={() => setSelectedService(null)}
         footer={(
@@ -1522,6 +1507,7 @@ function BookingDecisionModal({ booking, decision, setDecision, saving, onClose,
           <Detail label={t('admin.customer')} value={booking.touristId?.name || booking.touristId?.email || '-'} />
           <Detail label={t('admin.service')} value={booking.destinationPlace || booking.bookingDetails?.serviceName || '-'} />
           <Detail label={t('admin.status')} value={booking.status} />
+          <BookingDetailCards details={booking.bookingDetails} />
           <Field label={t('admin.totalPrice')} value={decision.totalPrice} onChangeText={(totalPrice) => setDecision((current) => ({ ...current, totalPrice }))} keyboardType="number-pad" />
           <Field label={t('admin.commissionPercent')} value={decision.commissionPercentage} onChangeText={(commissionPercentage) => setDecision((current) => ({ ...current, commissionPercentage }))} keyboardType="number-pad" />
           <Field label={t('admin.paymentReason')} value={decision.paymentReason} onChangeText={(paymentReason) => setDecision((current) => ({ ...current, paymentReason }))} multiline />
@@ -1558,7 +1544,7 @@ function Detail({ label: detailLabel, value }) {
 
 const createStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 16, paddingTop: 18, paddingBottom: 24 },
+  content: { padding: 16, paddingTop: 12, paddingBottom: 24 },
   header: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
   brandIcon: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
   brandIconText: { color: colors.white, fontSize: 18, fontWeight: '900' },
@@ -1645,9 +1631,11 @@ const createStyles = (colors) => StyleSheet.create({
   dangerSmallButton: { backgroundColor: colors.dangerSurface },
   mutedSmallButton: { backgroundColor: colors.surfaceMuted },
   smallButtonText: { color: colors.text, fontSize: 12, fontWeight: '900' },
-  scanButton: { alignItems: 'center', backgroundColor: colors.primaryLight, borderColor: colors.primary, borderRadius: 8, borderWidth: 1, flexDirection: 'row', gap: 7, minHeight: 44, justifyContent: 'center', paddingHorizontal: 14 },
-  scanButtonText: { color: colors.primaryDark, fontSize: 13, fontWeight: '900' },
-  verifyAction: { flex: 1, minWidth: 170 },
+  verifyPage: { paddingTop: 0 },
+  verifyHero: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 14 },
+  verifyHeroIcon: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 14, height: 44, justifyContent: 'center', width: 44 },
+  verifyTitle: { color: colors.textStrong || colors.text, fontSize: 22, fontWeight: '900' },
+  verifySubtitle: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 2 },
   infoText: { backgroundColor: colors.successSurface, borderRadius: 8, color: colors.success, fontSize: 12, fontWeight: '900', marginBottom: 10, padding: 10 },
   errorText: { backgroundColor: colors.dangerSurface, borderRadius: 8, color: colors.danger, fontSize: 12, fontWeight: '900', marginBottom: 10, padding: 10 },
   fieldWrap: { marginTop: 10 },

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import Feather from '@expo/vector-icons/Feather';
 import { lightColors } from '../theme/colors';
@@ -15,6 +16,10 @@ export default function BookingQrScanner({ visible, title = 'Scan booking QR', o
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
+  useEffect(() => {
+    if (visible) setScanned(false);
+  }, [visible]);
+
   const close = () => {
     setScanned(false);
     onClose?.();
@@ -29,12 +34,9 @@ export default function BookingQrScanner({ visible, title = 'Scan booking QR', o
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={close}>
-      <View style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={['top']}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>Secure verification</Text>
-            <Text style={styles.title}>{title}</Text>
-          </View>
+          <Text style={styles.title}>{title}</Text>
           <TouchableOpacity style={styles.iconButton} onPress={close} activeOpacity={0.84}>
             <Feather name="x" size={20} color={colors.text} />
           </TouchableOpacity>
@@ -48,7 +50,7 @@ export default function BookingQrScanner({ visible, title = 'Scan booking QR', o
           <View style={styles.messageBox}>
             <Feather name="camera" size={34} color={colors.primary} />
             <Text style={styles.messageTitle}>Camera permission needed</Text>
-            <Text style={styles.messageText}>Allow camera access to scan SafarisCon booking QR codes.</Text>
+            <Text style={styles.messageText}>Allow camera to scan the guest booking pass.</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={requestPermission} activeOpacity={0.84}>
               <Text style={styles.primaryButtonText}>Allow camera</Text>
             </TouchableOpacity>
@@ -69,11 +71,11 @@ export default function BookingQrScanner({ visible, title = 'Scan booking QR', o
             </View>
             <View style={styles.scanHint}>
               <Feather name="maximize" size={16} color={colors.white} />
-              <Text style={styles.scanHintText}>Place the booking QR inside the frame</Text>
+              <Text style={styles.scanHintText}>Align the QR in the frame</Text>
             </View>
           </View>
         )}
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -91,11 +93,10 @@ const createStyles = (colors) => StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 18,
-    paddingTop: 54,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
-  eyebrow: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
-  title: { color: colors.text, fontSize: 20, fontWeight: '900', marginTop: 3 },
+  title: { color: colors.text, flex: 1, fontSize: 18, fontWeight: '900', marginRight: 12 },
   iconButton: {
     alignItems: 'center',
     backgroundColor: colors.surface,

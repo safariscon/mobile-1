@@ -77,8 +77,12 @@ export function AuthProvider({ children }) {
     ]);
   }, []);
 
-  const saveSession = useCallback(async (nextToken, nextUser, nextRefreshToken) => {
+  const persistSessionRef = useRef(true);
+
+  const saveSession = useCallback(async (nextToken, nextUser, nextRefreshToken, { persist } = {}) => {
     if (!nextToken || !nextUser) return;
+    const shouldPersist = persist ?? persistSessionRef.current;
+    persistSessionRef.current = shouldPersist;
     tokenRef.current = nextToken;
     userRef.current = nextUser;
     setToken(nextToken);
@@ -86,19 +90,29 @@ export function AuthProvider({ children }) {
     if (nextRefreshToken) {
       refreshTokenRef.current = nextRefreshToken;
       setRefreshToken(nextRefreshToken);
+    }
+    connectRealtime();
+    joinRealtimeRooms(roomsForUser(nextUser));
+    if (!shouldPersist) {
+      await Promise.all([
+        SecureStore.deleteItemAsync(TOKEN_KEY),
+        SecureStore.deleteItemAsync(REFRESH_KEY),
+        SecureStore.deleteItemAsync(USER_KEY),
+      ]);
+      return;
+    }
+    if (nextRefreshToken) {
       await SecureStore.setItemAsync(REFRESH_KEY, nextRefreshToken);
     }
     await SecureStore.setItemAsync(TOKEN_KEY, nextToken);
     await SecureStore.setItemAsync(USER_KEY, JSON.stringify(nextUser || null));
-    connectRealtime();
-    joinRealtimeRooms(roomsForUser(nextUser));
   }, []);
 
-  const applyAuthPayload = useCallback(async (data) => {
+  const applyAuthPayload = useCallback(async (data, { persist } = {}) => {
     const accessToken = pickAccessToken(data);
     const nextRefresh = pickRefreshToken(data);
     if (accessToken && data.user) {
-      await saveSession(accessToken, data.user, nextRefresh);
+      await saveSession(accessToken, data.user, nextRefresh, { persist: persist ?? Boolean(nextRefresh) });
     }
     return { user: data.user, token: accessToken, refreshToken: nextRefresh };
   }, [saveSession]);
@@ -245,6 +259,7 @@ export function AuthProvider({ children }) {
       const data = await parseJson(response);
       if (!response.ok) throw backendError(response, data, i18n.t('backend.loginFailed'));
       if (isLoginOtpRequired(data) || !hasSessionTokens(data)) {
+        persistSessionRef.current = rememberMe !== false;
         return {
           success: true,
           otpRequired: true,
@@ -253,7 +268,7 @@ export function AuthProvider({ children }) {
           data,
         };
       }
-      const session = await applyAuthPayload(data);
+      const session = await applyAuthPayload(data, { persist: rememberMe !== false });
       return { success: true, ...session };
     } catch (error) {
       return { success: false, error: error.message, code: error.code, status: error.status, data: error.data };

@@ -20,7 +20,17 @@ import {
   TextField,
 } from './FormFields';
 import PhoneNumberField from './PhoneNumberField';
-import SchemaFields, { validateSchemaValues } from './SchemaFields';
+import { ListingFields, InventoryFields } from '../features/domain/DomainFields';
+import {
+  emptyInventoryValues,
+  emptyListingValues,
+  firstError,
+  domainCopy,
+  resolveDomain,
+  resolveSubtype,
+  validateInventoryClient,
+  validateListingClient,
+} from '../features/domain/registry';
 import ServiceLocationPicker from './ServiceLocationPicker';
 import WorldLocationFields from './WorldLocationFields';
 import { categorySelectOptions, findCategory, serviceCategoryId } from '../api/categories';
@@ -137,7 +147,9 @@ function formFromService(service, categories = []) {
       whatsappIso: whatsapp.phoneIso || 'RW',
       whatsappDisplay: whatsapp.display,
     },
-    listingAttributes: { ...(service?.listingAttributes || {}) },
+    listingAttributes: service?.listingAttributes && Object.keys(service.listingAttributes).length
+      ? { ...service.listingAttributes }
+      : emptyListingValues(resolveDomain(category || service), resolveSubtype(category || service)),
     rebookSettings: {
       requestDeadlineHours: String(service?.rebookSettings?.requestDeadlineHours ?? 24),
       rebookIdValidityHours: String(service?.rebookSettings?.rebookIdValidityHours ?? 72),
@@ -173,14 +185,18 @@ export default function ServiceEditorModal({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [stayStep, setStayStep] = useState(0);
 
   const selectedCategory = useMemo(
     () => findCategory(categories, form.categoryId),
     [categories, form.categoryId]
   );
   const supportsOptions = selectedCategory ? selectedCategory.supportsOptions !== false : form.supportsOptions !== false;
-  const listingSchema = selectedCategory?.listingFieldSchema || service?.schemaSnapshot?.listingFieldSchema || [];
-  const optionSchema = selectedCategory?.optionFieldSchema || service?.schemaSnapshot?.optionFieldSchema || [];
+  const domain = resolveDomain(selectedCategory || service);
+  const subtype = resolveSubtype(selectedCategory || service);
+  const isStay = domain === 'accommodation';
+  const copy = domainCopy(selectedCategory || service);
+  const staySteps = ['Basics', 'Stay details', 'Units', 'Submit'];
 
   useEffect(() => {
     if (!visible) return;
@@ -190,6 +206,7 @@ export default function ServiceEditorModal({
       next.supportsOptions = categories[0].supportsOptions !== false;
     }
     setForm(next);
+    setStayStep(0);
     setOptions(
       (existingOptions || []).map((opt) => ({
         ...opt,
@@ -208,11 +225,6 @@ export default function ServiceEditorModal({
 
   const setField = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const setLocation = (next) => setForm((current) => ({ ...current, location: { ...current.location, ...next } }));
-  const setListingAttr = (id, value) => setForm((current) => ({
-    ...current,
-    listingAttributes: { ...current.listingAttributes, [id]: value },
-  }));
-
   const onCategoryChange = (nextCategoryId) => {
     const category = findCategory(categories, nextCategoryId);
     setForm((current) => ({
@@ -221,7 +233,7 @@ export default function ServiceEditorModal({
       categoryName: category?.name || '',
       categorySlug: category?.slug || '',
       supportsOptions: category?.supportsOptions !== false,
-      listingAttributes: {},
+      listingAttributes: emptyListingValues(resolveDomain(category), resolveSubtype(category)),
       basePrice: category?.supportsOptions === false ? current.basePrice : '',
     }));
     if (category?.supportsOptions === false) setOptions([]);
@@ -291,7 +303,7 @@ export default function ServiceEditorModal({
       return 'Exact map coordinates are required before a service can be available.';
     }
     if (!form.contactDetails.phoneE164) return 'Contact phone is required.';
-    const schemaError = validateSchemaValues(listingSchema, form.listingAttributes);
+    const schemaError = firstError(validateListingClient(domain, subtype, form.listingAttributes));
     if (schemaError) return schemaError;
     if (!supportsOptions) {
       const price = Number(form.basePrice);
@@ -314,8 +326,51 @@ export default function ServiceEditorModal({
     }
   };
 
+  const validateStayStep = (index) => {
+    if (index <= 0) {
+      if (!form.categoryId) return 'Select a service category.';
+      if (!form.title.trim()) return 'Title is required.';
+      if (!form.location.country || !(form.location.city || form.location.state)) return 'Country and city are required.';
+      if (form.status === 'available' && (!form.location.latitudeRaw && !form.location.latitude)) {
+        return 'Drop a pin on the map.';
+      }
+      if (!form.contactDetails.phoneE164) return 'Contact phone is required.';
+    }
+    if (index <= 1) {
+      const schemaError = firstError(validateListingClient(domain, subtype, form.listingAttributes));
+      if (schemaError) return schemaError;
+    }
+    if (index <= 2) {
+      if (!supportsOptions) {
+        const price = Number(form.basePrice);
+        if (!Number.isFinite(price) || price < 0) return 'Base price (RWF) is required for this category.';
+      } else {
+        const named = options.filter((option) => String(option.name || '').trim());
+        if (!named.length) return isStay ? 'Add at least one unit.' : 'Add at least one option.';
+        for (const option of named) {
+          if (!Number.isFinite(Number(option.price)) || Number(option.price) < 0) {
+            return `${option.name || 'Option'} needs a price.`;
+          }
+          const inventoryError = firstError(validateInventoryClient(domain, option.attributes || {}));
+          if (inventoryError) return inventoryError;
+        }
+      }
+    }
+    return '';
+  };
+
+  const goStayNext = () => {
+    const message = validateStayStep(stayStep);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setError('');
+    setStayStep((index) => Math.min(staySteps.length - 1, index + 1));
+  };
+
   const save = async () => {
-    const validationError = validate();
+    const validationError = validateStayStep(staySteps.length - 1) || validate();
     if (validationError) {
       setError(validationError);
       return;
@@ -323,8 +378,16 @@ export default function ServiceEditorModal({
     setSaving(true);
     setError('');
     try {
+      const listingAttributes = { ...(form.listingAttributes || {}) };
+      if (isStay) {
+        listingAttributes.checkInTime = listingAttributes.checkInFrom || listingAttributes.checkInTime;
+        listingAttributes.checkOutTime = listingAttributes.checkOutUntil || listingAttributes.checkOutTime;
+        listingAttributes.maxStayNights = listingAttributes.allowLongStays ? 90 : 30;
+        if (listingAttributes.hostIdentity?.legalName) listingAttributes.requireHostIdentity = true;
+      }
       const payload = buildServicePayload({
         ...form,
+        listingAttributes,
         categoryId: String(form.categoryId || selectedCategory?._id || selectedCategory?.id || ''),
         contactDetails: {
           phoneE164: form.contactDetails.phoneE164,
@@ -388,24 +451,34 @@ export default function ServiceEditorModal({
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{service ? 'Edit service' : 'Add service'}</Text>
-              <Text style={styles.subtitle}>Schema-driven listing from your selected category</Text>
+              <Text style={styles.title}>{service ? (isStay ? 'Edit stay' : 'Edit service') : (isStay ? 'List a stay' : 'Add service')}</Text>
+              <Text style={styles.subtitle}>{isStay ? `Step ${stayStep + 1} of ${staySteps.length}: ${staySteps[stayStep]}` : 'Category listing from your selected type'}</Text>
             </View>
             <TouchableOpacity style={styles.close} onPress={onClose} activeOpacity={0.84}>
               <Feather name="x" size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
 
+          {isStay ? (
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
+              {staySteps.map((label, index) => (
+                <View key={label} style={{ flex: 1, height: 6, borderRadius: 99, backgroundColor: index <= stayStep ? colors.primary : colors.line || '#dce5f5' }} />
+              ))}
+            </View>
+          ) : null}
+
           {!!error && <Text style={styles.error}>{error}</Text>}
 
-          <Panel title="Category & basics">
-            <SelectField
-              label="Category"
-              value={String(form.categoryId || '')}
-              options={categorySelectOptions(categories)}
-              onChange={onCategoryChange}
-              placeholder="Select category"
-            />
+          {(!isStay || stayStep === 0) ? (
+            <>
+              <Panel title="Category & basics">
+                <SelectField
+                  label="Category"
+                  value={String(form.categoryId || '')}
+                  options={categorySelectOptions(categories)}
+                  onChange={onCategoryChange}
+                  placeholder="Select category"
+                />
             {selectedCategory ? (
               <Text style={styles.hint}>
                 {selectedCategory.name}
@@ -479,10 +552,6 @@ export default function ServiceEditorModal({
             />
           </Panel>
 
-          <Panel title="Listing attributes">
-            <SchemaFields fields={listingSchema} values={form.listingAttributes} onChange={setListingAttr} />
-          </Panel>
-
           <Panel title="Photos (max 5)">
             <TouchableOpacity style={styles.upload} onPress={pickImages} disabled={uploading} activeOpacity={0.84}>
               {uploading ? <ActivityIndicator color={colors.primary} /> : (
@@ -505,7 +574,55 @@ export default function ServiceEditorModal({
               ))}
             </View>
           </Panel>
+            </>
+          ) : null}
 
+          {(!isStay || stayStep === 1) ? (
+          <Panel title={isStay ? 'House rules, availability & invoicing' : 'Category details'}>
+            <ListingFields
+              category={selectedCategory || service}
+              values={form.listingAttributes}
+              onChange={(next) => setForm((current) => ({ ...current, listingAttributes: next }))}
+            />
+          </Panel>
+          ) : null}
+
+          {(!isStay || stayStep === 2) ? (
+          !supportsOptions ? (
+            <Panel title="Pricing">
+              <NumberField label="Base price (RWF)" value={String(form.basePrice)} onChangeText={(text) => setField('basePrice', text)} />
+            </Panel>
+          ) : (
+            <Panel title={isStay ? 'Rooms & units' : copy.kind === 'rental' ? 'Vehicles' : 'Options'}>
+              {options.map((option, index) => (
+                <View key={option.localId} style={styles.optionCard}>
+                  <View style={styles.optionHeader}>
+                    <Text style={styles.optionTitle}>{isStay ? `Unit ${index + 1}` : copy.kind === 'rental' ? `Vehicle ${index + 1}` : `Option ${index + 1}`}</Text>
+                    <TouchableOpacity onPress={() => removeOption(option)} activeOpacity={0.84}>
+                      <Text style={styles.removeText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextField label="Name" value={option.name} onChangeText={(text) => updateOption(option.localId, 'name', text)} />
+                  <View style={styles.row}>
+                    <NumberField label="Price (RWF)" value={String(option.price)} onChangeText={(text) => updateOption(option.localId, 'price', text)} />
+                    <SelectField label="Price type" value={option.priceType} options={PRICE_TYPES} onChange={(value) => updateOption(option.localId, 'priceType', value)} searchable={false} />
+                  </View>
+                  <NumberField label={copy.capacityLabel || 'Capacity'} value={String(option.capacity)} onChangeText={(text) => updateOption(option.localId, 'capacity', text)} />
+                  <InventoryFields
+                    category={selectedCategory || service}
+                    values={option.attributes || emptyInventoryValues(domain)}
+                    onChange={(next) => updateOption(option.localId, 'attributes', next)}
+                  />
+                </View>
+              ))}
+              <TouchableOpacity style={styles.outline} onPress={() => setOptions((current) => [...current, emptyOption()])} activeOpacity={0.84}>
+                <Text style={styles.outlineText}>{isStay ? 'Add unit' : copy.kind === 'rental' ? 'Add vehicle type' : 'Add option'}</Text>
+              </TouchableOpacity>
+            </Panel>
+          )
+          ) : null}
+
+          {(!isStay || stayStep === 3) ? (
           <Panel title="Rebook rules">
             <View style={styles.row}>
               <NumberField
@@ -519,52 +636,35 @@ export default function ServiceEditorModal({
                 onChangeText={(text) => setField('rebookSettings', { ...form.rebookSettings, rebookIdValidityHours: text })}
               />
             </View>
-            <Text style={styles.hint}>Cancel penalty % and platform commission are set by admin on approval.</Text>
+            <Text style={styles.hint}>50% deposit. 10% platform commission.</Text>
           </Panel>
+          ) : null}
 
-          {!supportsOptions ? (
-            <Panel title="Pricing">
-              <NumberField label="Base price (RWF)" value={String(form.basePrice)} onChangeText={(text) => setField('basePrice', text)} />
-            </Panel>
-          ) : (
-            <Panel title="Options">
-              {options.map((option, index) => (
-                <View key={option.localId} style={styles.optionCard}>
-                  <View style={styles.optionHeader}>
-                    <Text style={styles.optionTitle}>Option {index + 1}</Text>
-                    <TouchableOpacity onPress={() => removeOption(option)} activeOpacity={0.84}>
-                      <Text style={styles.removeText}>Remove</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TextField label="Name" value={option.name} onChangeText={(text) => updateOption(option.localId, 'name', text)} />
-                  <View style={styles.row}>
-                    <NumberField label="Price (RWF)" value={String(option.price)} onChangeText={(text) => updateOption(option.localId, 'price', text)} />
-                    <SelectField label="Price type" value={option.priceType} options={PRICE_TYPES} onChange={(value) => updateOption(option.localId, 'priceType', value)} searchable={false} />
-                  </View>
-                  <View style={styles.row}>
-                    <SelectField label="Calculation" value={option.calculationField} options={CALC_FIELDS} onChange={(value) => updateOption(option.localId, 'calculationField', value)} searchable={false} />
-                    <SelectField label="Duration unit" value={option.durationUnit} options={DURATION_UNITS} onChange={(value) => updateOption(option.localId, 'durationUnit', value)} searchable={false} />
-                  </View>
-                  <NumberField label="Capacity" value={String(option.capacity)} onChangeText={(text) => updateOption(option.localId, 'capacity', text)} />
-                  {optionSchema.length ? (
-                    <SchemaFields
-                      fields={optionSchema}
-                      values={option.attributes || {}}
-                      onChange={(id, value) => updateOption(option.localId, 'attributes', { ...(option.attributes || {}), [id]: value })}
-                    />
-                  ) : null}
-                </View>
-              ))}
-              <TouchableOpacity style={styles.outline} onPress={() => setOptions((current) => [...current, emptyOption()])} activeOpacity={0.84}>
-                <Text style={styles.outlineText}>Add option</Text>
+          {isStay ? (
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <TouchableOpacity
+                style={[styles.outline, { flex: 1, opacity: stayStep === 0 ? 0.4 : 1 }]}
+                disabled={stayStep === 0}
+                onPress={() => setStayStep((index) => Math.max(0, index - 1))}
+                activeOpacity={0.84}
+              >
+                <Text style={styles.outlineText}>Back</Text>
               </TouchableOpacity>
-              {!service ? <Text style={styles.hint}>Options are saved after the service is created.</Text> : null}
-            </Panel>
+              {stayStep < staySteps.length - 1 ? (
+                <TouchableOpacity style={[styles.save, { flex: 1 }]} onPress={goStayNext} activeOpacity={0.86}>
+                  <Text style={styles.saveText}>Continue</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={[styles.save, { flex: 1 }, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Submit stay</Text>}
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <TouchableOpacity style={[styles.save, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{t('common.save')}</Text>}
+            </TouchableOpacity>
           )}
-
-          <TouchableOpacity style={[styles.save, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{t('common.save')}</Text>}
-          </TouchableOpacity>
         </ScrollView>
       </View>
     </Modal>
