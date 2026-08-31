@@ -101,8 +101,26 @@ const emptyOption = () => ({
 });
 
 function formFromService(service, categories = []) {
-  const location = service?.location || service?.serviceLocation || {};
   const contact = service?.contactDetails || {};
+  // `service.location` is a legacy display string on the API, so it must never be spread.
+  const catalog = service?.catalogLocation && typeof service.catalogLocation === 'object' ? service.catalogLocation : {};
+  const legacy = service?.serviceLocation && typeof service.serviceLocation === 'object' ? service.serviceLocation : {};
+  const inline = service?.location && typeof service.location === 'object' ? service.location : {};
+  const addressLine = typeof service?.location === 'string' ? service.location : '';
+  const location = {
+    ...legacy,
+    ...catalog,
+    ...inline,
+    state: inline.state || inline.province || catalog.state || legacy.province || '',
+    city: inline.city || inline.district || catalog.city || legacy.district || '',
+    area: inline.area || inline.sector || catalog.area || legacy.sector || '',
+    placeName: inline.placeName || catalog.placeName || legacy.name || '',
+    referenceName: inline.referenceName || catalog.referenceName || '',
+    latitude: inline.latitude ?? catalog.latitude ?? legacy.latitude ?? contact.latitude ?? null,
+    longitude: inline.longitude ?? catalog.longitude ?? legacy.longitude ?? contact.longitude ?? null,
+    formattedAddress: inline.formattedAddress || catalog.formattedAddress || legacy.formattedAddress || contact.exactAddress || addressLine || '',
+    fullAddress: inline.fullAddress || catalog.formattedAddress || legacy.fullAddress || contact.exactAddress || addressLine || '',
+  };
   const categoryId = serviceCategoryId(service)
     || String(service?.categoryId || '')
     || '';

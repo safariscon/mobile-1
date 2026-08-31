@@ -409,7 +409,11 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     setLoading(true);
     setError('');
     try {
-      const location = business.location || business.serviceLocation || {};
+      // `business.location` is a legacy display string; the structured pin lives on catalogLocation.
+      const location = business.catalogLocation
+        || (business.location && typeof business.location === 'object' ? business.location : null)
+        || business.serviceLocation
+        || {};
       const hasLocation = (location.country && (location.city || location.state || location.district))
         && (location.latitude || location.latitudeRaw)
         && (location.longitude || location.longitudeRaw);
