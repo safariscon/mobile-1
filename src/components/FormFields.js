@@ -366,6 +366,55 @@ function DateInput({
   );
 }
 
+/**
+ * Tappable chips. Single choice by default, or `multiple` to toggle a list of
+ * values (used for permit classes and the districts a provider serves).
+ */
+export function ChipsField({ label, value, options, onChange, multiple = false, error, help }) {
+  const { colors, styles } = useThemedStyles(createStyles);
+  const normalizedOptions = normalizeOptions(options);
+  const selected = multiple ? (Array.isArray(value) ? value.map(String) : []) : [];
+
+  const toggle = (optionValue) => {
+    if (!multiple) {
+      onChange(optionValue);
+      return;
+    }
+    onChange(selected.includes(optionValue)
+      ? selected.filter((item) => item !== optionValue)
+      : [...selected, optionValue]);
+  };
+
+  return (
+    <View style={styles.fieldWrap}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.chipRow}>
+        {normalizedOptions.map((option) => {
+          const active = multiple
+            ? selected.includes(String(option.value))
+            : String(value ?? '') === String(option.value);
+          return (
+            <TouchableOpacity
+              key={String(option.value)}
+              onPress={() => toggle(String(option.value))}
+              activeOpacity={0.84}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={2}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {!!help && <Text style={styles.helpText}>{help}</Text>}
+      {!!error && <Text style={styles.error}>{error}</Text>}
+    </View>
+  );
+}
+
 export function DateField(props) {
   return <DateInput {...props} mode="date" />;
 }
@@ -453,6 +502,37 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     marginTop: 6,
+  },
+  helpText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  chipActive: {
+    backgroundColor: colors.primarySoft || 'rgba(7, 84, 215, 0.10)',
+    borderColor: colors.primary,
+  },
+  chipText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  chipTextActive: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   modalBackdrop: {
     backgroundColor: 'rgba(16, 24, 40, 0.42)',

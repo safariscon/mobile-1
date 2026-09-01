@@ -369,7 +369,7 @@ export default function ServiceEditorModal({
           if (!Number.isFinite(Number(option.price)) || Number(option.price) < 0) {
             return `${option.name || 'Option'} needs a price.`;
           }
-          const inventoryError = firstError(validateInventoryClient(domain, option.attributes || {}));
+          const inventoryError = firstError(validateInventoryClient(domain, option.attributes || {}, { subtype }));
           if (inventoryError) return inventoryError;
         }
       }
@@ -628,7 +628,7 @@ export default function ServiceEditorModal({
                   <NumberField label={copy.capacityLabel || 'Capacity'} value={String(option.capacity)} onChangeText={(text) => updateOption(option.localId, 'capacity', text)} />
                   <InventoryFields
                     category={selectedCategory || service}
-                    values={option.attributes || emptyInventoryValues(domain)}
+                    values={option.attributes || emptyInventoryValues(domain, subtype)}
                     onChange={(next) => updateOption(option.localId, 'attributes', next)}
                   />
                 </View>

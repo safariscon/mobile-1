@@ -596,7 +596,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
             </Text>
           ) : null}
           <View style={{ marginBottom: 8 }}>
-            <BookingFields category={service} values={bookingAttributes} onChange={setBookingAttributes} />
+            <BookingFields category={service} listing={service} values={bookingAttributes} onChange={setBookingAttributes} />
           </View>
             </>
           ) : null}

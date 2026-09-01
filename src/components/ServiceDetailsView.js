@@ -5,6 +5,7 @@ import AvailabilityTable from './AvailabilityTable';
 import ServiceLocationMap from './ServiceLocationMap';
 import { formatMoney, serviceApprovalStatus } from '../lib/serviceMapper';
 import { domainCopy, remainingPaymentLabel } from '../features/domain/registry';
+import { resolveRentalLocations } from '../lib/rentalLocations';
 import useThemedStyles from '../theme/useThemedStyles';
 
 function asList(value) {
@@ -214,7 +215,16 @@ export default function ServiceDetailsView({
             </Section>
 
             {copy.kind === 'rental' ? (
-              <Section title="Rental rules">
+              <Section title={t('domain.transport.rentalRulesTitle')}>
+                {(() => {
+                  const rentalLocations = resolveRentalLocations(normalized);
+                  return (
+                    <>
+                      <DetailRow label={t('domain.transport.pickupLocation')} value={rentalLocations.pickupLocation} />
+                      <DetailRow label={t('domain.transport.returnLocation')} value={rentalLocations.returnLocation} />
+                    </>
+                  );
+                })()}
                 <DetailRow label="Vehicle class" value={listing.vehicleClass} />
                 <DetailRow label="Transmission" value={listing.transmission} />
                 <DetailRow label="Fuel type" value={listing.fuelType} />

@@ -1,3 +1,8 @@
+import i18n from '../../i18n';
+import { resolveRentalLocations } from '../../lib/rentalLocations';
+
+export { resolveRentalLocations };
+
 const SLUG_TO_DOMAIN = {
   hotel: 'accommodation',
   apartment: 'accommodation',
@@ -61,15 +66,17 @@ function slugCandidates(categoryOrSlug) {
 
 function inferTransportSubtype(categoryOrSlug) {
   const attrs = categoryOrSlug?.listingAttributes || categoryOrSlug || {};
-  if (attrs.vehicleClass || attrs.pickupTime || attrs.returnTime || attrs.minRentalDays || attrs.maxRentalDays) {
-    return 'car-rental';
-  }
+  // Bikes share the rental window fields with cars, so check bike-only
+  // markers first or every motorbike would read as a car rental.
   if (attrs.helmetIncluded != null) return 'motorbike';
+  if (attrs.vehicleClass || attrs.transmission || attrs.fuelPolicy) return 'car-rental';
   if (attrs.vehicleType) return 'taxi';
+  if (attrs.pickupTime || attrs.returnTime || attrs.minRentalDays || attrs.maxRentalDays) return 'car-rental';
   return '';
 }
 
 function readSlug(categoryOrSlug) {
+  if (!categoryOrSlug) return '';
   const candidates = slugCandidates(categoryOrSlug);
   const domainHint = typeof categoryOrSlug === 'object' ? categoryOrSlug.domain : '';
   const known = candidates.find((slug) => {
@@ -172,6 +179,22 @@ export const CAR_FUEL_TYPES = [
   ['Hybrid / Electric', 'Hybrid / Electric'],
 ];
 
+/** Motorbike fleet categories a rider can choose between. */
+export const MOTORBIKE_CATEGORIES = ['scooter', 'taxi-moto', 'safari-adventure'];
+
+/** Rwandan permit classes, per vehicle kind. A1 = automatic scooters under 125cc. */
+export const MOTORBIKE_LICENCE_CLASSES = ['A1', 'A'];
+export const CAR_LICENCE_CLASSES = ['B', 'C', 'D', 'E'];
+
+export function licenceClassesFor(subtype) {
+  return subtype === 'motorbike' ? MOTORBIKE_LICENCE_CLASSES : CAR_LICENCE_CLASSES;
+}
+
+/** Engine size decides which permit class a rider legally needs. */
+export function requiredLicenceClassForEngine(engineCc) {
+  return Number(engineCc) > 0 && Number(engineCc) <= 125 ? 'A1' : 'A';
+}
+
 export function emptyListingValues(domain, subtype) {
   if (domain === 'accommodation') {
     return {
@@ -193,18 +216,35 @@ export function emptyListingValues(domain, subtype) {
     };
   }
   if (domain === 'transport' && subtype === 'car-rental') {
-    return { vehicleClass: '', transmission: '', withDriver: false, fuelType: 'Petrol', fuelPolicy: 'Full-to-full', insuranceIncluded: false, minimumDriverAge: 21, depositNote: '', pickupTime: '08:00', returnTime: '18:00', minRentalDays: 1, maxRentalDays: 30 };
+    return { vehicleClass: '', transmission: '', withDriver: false, fuelType: 'Petrol', fuelPolicy: 'Full-to-full', insuranceIncluded: false, minimumDriverAge: 21, depositNote: '', pickupTime: '08:00', returnTime: '18:00', minRentalDays: 1, maxRentalDays: 30, allowedLicenceClasses: ['B'], requireLicenceUpload: true, pickupLocation: '', returnLocation: '' };
   }
   if (domain === 'transport' && subtype === 'taxi') return { vehicleType: '' };
-  if (domain === 'transport' && subtype === 'motorbike') return { helmetIncluded: true, minimumDriverAge: 18 };
+  if (domain === 'transport' && subtype === 'motorbike') {
+    return {
+      helmetIncluded: true,
+      minimumDriverAge: 18,
+      pickupTime: '08:00',
+      returnTime: '18:00',
+      minRentalDays: 1,
+      maxRentalDays: 30,
+      depositNote: '',
+      allowedLicenceClasses: ['A1', 'A'],
+      requireLicenceUpload: true,
+      pickupLocation: '',
+      returnLocation: '',
+    };
+  }
   if (domain === 'experiences') return { duration: '', difficulty: 'Easy', meetingPoint: '', included: '', excluded: '' };
   if (domain === 'dining') return { cuisine: '', dressCode: '', atmosphere: '', averagePrice: '', seatingCapacity: '', openingHours: '' };
   if (domain === 'venues') return { maxCapacity: '', amenities: '', cateringAvailable: false };
   return {};
 }
 
-export function emptyInventoryValues(domain) {
+export function emptyInventoryValues(domain, subtype) {
   if (domain === 'accommodation') return { maxGuests: 2, bedType: '', numberOfBeds: 1, bedrooms: 1, quantity: 1 };
+  if (domain === 'transport' && subtype === 'motorbike') {
+    return { make: '', model: '', plateNumber: '', chassisNumber: '', motoCategory: 'scooter', engineCc: 125, insuranceExpiry: '', helmetsProvided: 1, quantity: 1 };
+  }
   if (domain === 'transport') return { make: '', model: '', seats: 4, luggage: '', ac: true, quantity: 1 };
   if (domain === 'experiences') return { packageType: 'Adult' };
   if (domain === 'venues') return { packageName: '' };
@@ -214,7 +254,7 @@ export function emptyInventoryValues(domain) {
 export function emptyBookingValues(domain) {
   if (domain === 'accommodation') return { checkIn: '', checkOut: '', guests: 1, ratePlan: 'standard', specialRequests: '' };
   if (domain === 'transport') {
-    return { pickupLocation: '', returnLocation: '', dropoffLocation: '', pickupDateTime: '', returnDateTime: '', driverAge: '', driverLicenseNumber: '', numberOfDrivers: 1 };
+    return { pickupLocation: '', dropoffLocation: '', pickupDateTime: '', returnDateTime: '', driverAge: '', driverLicenseNumber: '', numberOfDrivers: 1, licenceClass: '', licenceImageFront: '', licenceImageBack: '', selectedCategory: '' };
   }
   if (domain === 'experiences') {
     return { preferredDate: '', participants: 1, adults: 1, children: 0, language: '', pickupRequired: false, specialRequirements: '' };
@@ -224,6 +264,24 @@ export function emptyBookingValues(domain) {
   return {};
 }
 
+/** Transport validation messages, resolved through the app's i18n instance. */
+const tr = (key, params) => i18n.t(`domain.transport.errors.${key}`, params);
+
+function validateRentalWindow(values, errors) {
+  if (values.minRentalDays != null && values.minRentalDays !== '' && !(Number(values.minRentalDays) >= 1)) {
+    errors.minRentalDays = tr('minRentalDays');
+  }
+  if (values.maxRentalDays != null && values.maxRentalDays !== '' && !(Number(values.maxRentalDays) >= 1)) {
+    errors.maxRentalDays = tr('maxRentalDays');
+  }
+  if (Number(values.minRentalDays) > 0 && Number(values.maxRentalDays) > 0 && Number(values.maxRentalDays) < Number(values.minRentalDays)) {
+    errors.maxRentalDays = tr('maxBelowMin');
+  }
+  if (!Array.isArray(values.allowedLicenceClasses) || !values.allowedLicenceClasses.length) {
+    errors.allowedLicenceClasses = tr('licenceClassesRequired');
+  }
+}
+
 export function validateListingClient(domain, subtype, values = {}) {
   const errors = {};
   if (domain === 'accommodation') {
@@ -231,15 +289,18 @@ export function validateListingClient(domain, subtype, values = {}) {
     if (!values.checkOutTime) errors.checkOutTime = 'Check-out time is required.';
   }
   if (domain === 'transport' && subtype === 'car-rental') {
-    if (!values.vehicleClass) errors.vehicleClass = 'Vehicle class is required.';
-    if (!values.transmission) errors.transmission = 'Transmission is required.';
-    if (Number(values.minimumDriverAge) < 18) errors.minimumDriverAge = 'Minimum age must be at least 18.';
-    if (values.minRentalDays != null && values.minRentalDays !== '' && !(Number(values.minRentalDays) >= 1)) {
-      errors.minRentalDays = 'Minimum rental must be at least 1 day.';
-    }
-    if (Number(values.minRentalDays) > 0 && Number(values.maxRentalDays) > 0 && Number(values.maxRentalDays) < Number(values.minRentalDays)) {
-      errors.maxRentalDays = 'Maximum rental must be at least the minimum.';
-    }
+    if (!values.vehicleClass) errors.vehicleClass = tr('vehicleClassRequired');
+    if (!values.transmission) errors.transmission = tr('transmissionRequired');
+    if (Number(values.minimumDriverAge) < 18) errors.minimumDriverAge = tr('minAge');
+    validateRentalWindow(values, errors);
+    if (!String(values.pickupLocation || '').trim()) errors.pickupLocation = tr('pickupLocationRequired');
+    if (!String(values.returnLocation || '').trim()) errors.returnLocation = tr('returnLocationRequired');
+  }
+  if (domain === 'transport' && subtype === 'motorbike') {
+    if (Number(values.minimumDriverAge) < 16) errors.minimumDriverAge = tr('minRiderAge');
+    validateRentalWindow(values, errors);
+    if (!String(values.pickupLocation || '').trim()) errors.pickupLocation = tr('pickupLocationRequired');
+    if (!String(values.returnLocation || '').trim()) errors.returnLocation = tr('returnLocationRequired');
   }
   if (domain === 'transport' && subtype === 'taxi' && !values.vehicleType) errors.vehicleType = 'Vehicle type is required.';
   if (domain === 'experiences' && !values.duration) errors.duration = 'Duration is required.';
@@ -251,11 +312,20 @@ export function validateListingClient(domain, subtype, values = {}) {
   return errors;
 }
 
-export function validateInventoryClient(domain, values = {}) {
+export function validateInventoryClient(domain, values = {}, { subtype } = {}) {
   const errors = {};
   if (domain === 'accommodation' && !(Number(values.maxGuests) > 0)) errors.maxGuests = 'Max guests is required.';
+  if (domain === 'transport' && subtype === 'motorbike') {
+    if (!String(values.plateNumber || '').trim()) errors.plateNumber = tr('plateRequired');
+    if (!(Number(values.engineCc) > 0)) errors.engineCc = tr('engineCcRequired');
+    if (!values.insuranceExpiry) {
+      errors.insuranceExpiry = tr('insuranceExpiryRequired');
+    } else if (values.insuranceExpiry <= new Date().toISOString().slice(0, 10)) {
+      errors.insuranceExpiry = tr('insuranceExpired');
+    }
+  }
   if (domain === 'transport' && values.quantity !== '' && values.quantity != null && !(Number(values.quantity) > 0)) {
-    errors.quantity = 'Number of vehicles must be at least 1.';
+    errors.quantity = tr('quantityRequired');
   }
   return errors;
 }
@@ -274,12 +344,15 @@ export function validateBookingClient(domain, values = {}, { listing = {}, inven
     }
   }
   if (domain === 'transport') {
-    if (!values.pickupLocation) errors.pickupLocation = 'Pickup location is required.';
+    const transportSubtype = resolveSubtype(listing);
     if (!values.pickupDateTime) errors.pickupDateTime = 'Pickup date/time is required.';
-    if (listing.subtype === 'taxi' || listing.categorySlug === 'taxi' || listing.slug === 'taxi') {
+    if (transportSubtype === 'taxi' || listing.subtype === 'taxi' || listing.categorySlug === 'taxi' || listing.slug === 'taxi') {
+      if (!values.pickupLocation) errors.pickupLocation = 'Pickup location is required.';
       if (!values.dropoffLocation) errors.dropoffLocation = 'Drop-off location is required.';
     } else {
-      if (!values.returnLocation) errors.returnLocation = 'Return location is required.';
+      const locations = resolveRentalLocations(listing);
+      if (!locations.pickupLocation) errors.pickupLocation = tr('providerPickupMissing');
+      if (!locations.returnLocation) errors.returnLocation = tr('providerReturnMissing');
       if (!values.returnDateTime) errors.returnDateTime = 'Return date is required.';
       const pickup = splitDateTimeValue(values.pickupDateTime);
       const ret = splitDateTimeValue(values.returnDateTime);
@@ -290,9 +363,31 @@ export function validateBookingClient(domain, values = {}, { listing = {}, inven
       if (days > 0 && days < minDays) errors.returnDateTime = `Minimum rental is ${minDays} day${minDays === 1 ? '' : 's'}.`;
       if (days > 0 && maxDays > 0 && days > maxDays) errors.returnDateTime = `Maximum rental is ${maxDays} day${maxDays === 1 ? '' : 's'}.`;
     }
-    if (listing.subtype === 'car-rental' || listing.categorySlug === 'car-rental' || listing.slug === 'car-rental') {
+    if (transportSubtype === 'car-rental') {
       if (!(Number(values.driverAge) >= 18)) errors.driverAge = 'Driver age must be at least 18.';
       if (!listingDetails.withDriver && !values.driverLicenseNumber) errors.driverLicenseNumber = 'Driver license number is required.';
+    }
+    if (transportSubtype === 'motorbike') {
+      const minAge = Number(listingDetails.minimumDriverAge) || 16;
+      if (!(Number(values.driverAge) >= minAge)) errors.driverAge = tr('riderAgeMin', { n: minAge });
+      if (!String(values.driverLicenseNumber || '').trim()) errors.driverLicenseNumber = tr('licenceNumberRequired');
+    }
+    if (transportSubtype === 'car-rental' || transportSubtype === 'motorbike') {
+      const allowed = Array.isArray(listingDetails.allowedLicenceClasses) ? listingDetails.allowedLicenceClasses : [];
+      if (!values.licenceClass) {
+        errors.licenceClass = tr('licenceClassRequired');
+      } else if (allowed.length && !allowed.includes(values.licenceClass)) {
+        errors.licenceClass = tr('licenceClassNotAccepted', { classes: allowed.join(', ') });
+      }
+      // A rider on a bike over 125cc needs the full class A permit, not A1.
+      const engineCc = Number(inventoryDetails.engineCc) || 0;
+      if (transportSubtype === 'motorbike' && engineCc > 125 && values.licenceClass === 'A1') {
+        errors.licenceClass = tr('licenceClassTooSmall', { cc: engineCc });
+      }
+      if (listingDetails.requireLicenceUpload !== false) {
+        if (!values.licenceImageFront) errors.licenceImageFront = tr('licenceFrontRequired');
+        if (!values.licenceImageBack) errors.licenceImageBack = tr('licenceBackRequired');
+      }
     }
   }
   if (domain === 'experiences') {

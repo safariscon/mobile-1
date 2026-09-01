@@ -1,6 +1,18 @@
 import { Text, TouchableOpacity, View } from 'react-native';
-import { CAR_FUEL_TYPES, domainCopy, joinDateTimeValue, resolveDomain, resolveSubtype, splitDateTimeValue } from './registry';
-import { DateField, DateTimeField, MultilineField, NumberField, SelectField, TextField, TimeField } from '../../components/FormFields';
+import { useTranslation } from 'react-i18next';
+import {
+  CAR_FUEL_TYPES,
+  MOTORBIKE_CATEGORIES,
+  domainCopy,
+  joinDateTimeValue,
+  licenceClassesFor,
+  resolveDomain,
+  resolveSubtype,
+  splitDateTimeValue,
+} from './registry';
+import { resolveRentalLocations } from '../../lib/rentalLocations';
+import LicencePhotoField from './LicencePhotoField';
+import { ChipsField, DateField, DateTimeField, MultilineField, NumberField, SelectField, TextField, TimeField } from '../../components/FormFields';
 
 const addDay = (iso) => {
   const date = new Date(`${iso}T12:00:00Z`);
@@ -18,10 +30,44 @@ function BoolField({ label, value, onChange }) {
   );
 }
 
-export function ListingFields({ category, values = {}, onChange }) {
+export function ListingFields({ category, values = {}, onChange, errors = {} }) {
   const domain = resolveDomain(category);
   const subtype = resolveSubtype(category);
+  const { t } = useTranslation();
   const set = (key, value) => onChange({ ...values, [key]: value });
+
+  const permitFields = (vehicleSubtype) => (
+    <>
+      <ChipsField
+        label={t('domain.transport.licence.allowedClasses')}
+        multiple
+        options={licenceClassesFor(vehicleSubtype).map((value) => [value, t(`domain.transport.licence.classes.${value}`)])}
+        value={values.allowedLicenceClasses || []}
+        error={errors.allowedLicenceClasses}
+        help={t('domain.transport.licence.allowedClassesHelp')}
+        onChange={(value) => set('allowedLicenceClasses', value)}
+      />
+      <TextField
+        label={t('domain.transport.pickupLocation')}
+        value={values.pickupLocation}
+        error={errors.pickupLocation}
+        help={t('domain.transport.pickupLocationProviderHelp')}
+        onChangeText={(value) => set('pickupLocation', value)}
+      />
+      <TextField
+        label={t('domain.transport.returnLocation')}
+        value={values.returnLocation}
+        error={errors.returnLocation}
+        help={t('domain.transport.returnLocationProviderHelp')}
+        onChangeText={(value) => set('returnLocation', value)}
+      />
+      <BoolField
+        label={t('domain.transport.licence.requireUpload')}
+        value={values.requireLicenceUpload !== false}
+        onChange={(value) => set('requireLicenceUpload', value)}
+      />
+    </>
+  );
 
   if (domain === 'accommodation') {
     const identity = values.hostIdentity || {};
@@ -63,6 +109,7 @@ export function ListingFields({ category, values = {}, onChange }) {
         <NumberField label="Minimum rental (days)" value={String(values.minRentalDays ?? 1)} onChangeText={(value) => set('minRentalDays', value)} />
         <NumberField label="Maximum rental (days)" value={String(values.maxRentalDays ?? 30)} onChangeText={(value) => set('maxRentalDays', value)} />
         <MultilineField label="Security deposit note" value={values.depositNote} onChangeText={(value) => set('depositNote', value)} />
+        {permitFields('car-rental')}
       </View>
     );
   }
@@ -72,8 +119,33 @@ export function ListingFields({ category, values = {}, onChange }) {
   if (domain === 'transport' && subtype === 'motorbike') {
     return (
       <View>
-        <BoolField label="Helmet included" value={Boolean(values.helmetIncluded)} onChange={(value) => set('helmetIncluded', value)} />
-        <NumberField label="Minimum rider age" value={String(values.minimumDriverAge ?? '')} onChangeText={(value) => set('minimumDriverAge', value)} />
+        <BoolField
+          label={t('domain.transport.moto.helmetIncluded')}
+          value={values.helmetIncluded !== false}
+          onChange={(value) => set('helmetIncluded', value)}
+        />
+        <NumberField
+          label={t('domain.transport.moto.minimumRiderAge')}
+          value={String(values.minimumDriverAge ?? '')}
+          error={errors.minimumDriverAge}
+          onChangeText={(value) => set('minimumDriverAge', value)}
+        />
+        <TimeField label={t('domain.transport.pickupFrom')} value={values.pickupTime || '08:00'} onChange={(value) => set('pickupTime', value)} />
+        <TimeField label={t('domain.transport.returnBy')} value={values.returnTime || '18:00'} onChange={(value) => set('returnTime', value)} />
+        <NumberField
+          label={t('domain.transport.minRentalDays')}
+          value={String(values.minRentalDays ?? 1)}
+          error={errors.minRentalDays}
+          onChangeText={(value) => set('minRentalDays', value)}
+        />
+        <NumberField
+          label={t('domain.transport.maxRentalDays')}
+          value={String(values.maxRentalDays ?? 30)}
+          error={errors.maxRentalDays}
+          onChangeText={(value) => set('maxRentalDays', value)}
+        />
+        <MultilineField label={t('domain.transport.depositNote')} value={values.depositNote} onChangeText={(value) => set('depositNote', value)} />
+        {permitFields('motorbike')}
       </View>
     );
   }
@@ -110,9 +182,11 @@ export function ListingFields({ category, values = {}, onChange }) {
   );
 }
 
-export function InventoryFields({ category, values = {}, onChange }) {
+export function InventoryFields({ category, values = {}, onChange, errors = {} }) {
   const domain = resolveDomain(category);
+  const subtype = resolveSubtype(category);
   const copy = domainCopy(category);
+  const { t } = useTranslation();
   const set = (key, value) => onChange({ ...values, [key]: value });
   if (domain === 'accommodation') {
     return (
@@ -126,14 +200,57 @@ export function InventoryFields({ category, values = {}, onChange }) {
       </View>
     );
   }
+  if (domain === 'transport' && subtype === 'motorbike') {
+    return (
+      <View>
+        <TextField label={t('domain.transport.moto.make')} value={values.make} placeholder={t('domain.transport.moto.makePlaceholder')} onChangeText={(value) => set('make', value)} />
+        <TextField label={t('domain.transport.moto.model')} value={values.model} placeholder={t('domain.transport.moto.modelPlaceholder')} onChangeText={(value) => set('model', value)} />
+        <TextField
+          label={t('domain.transport.moto.plateNumber')}
+          value={values.plateNumber}
+          placeholder={t('domain.transport.moto.platePlaceholder')}
+          error={errors.plateNumber}
+          autoCapitalize="characters"
+          onChangeText={(value) => set('plateNumber', String(value || '').toUpperCase())}
+        />
+        <TextField
+          label={t('domain.transport.moto.chassisNumber')}
+          value={values.chassisNumber}
+          autoCapitalize="characters"
+          onChangeText={(value) => set('chassisNumber', String(value || '').toUpperCase())}
+        />
+        <SelectField
+          label={t('domain.transport.moto.category')}
+          value={values.motoCategory || 'scooter'}
+          options={MOTORBIKE_CATEGORIES.map((value) => [value, t(`domain.transport.moto.categories.${value}`)])}
+          onChange={(value) => set('motoCategory', value)}
+          searchable={false}
+        />
+        <NumberField
+          label={t('domain.transport.moto.engineCc')}
+          value={String(values.engineCc ?? '')}
+          error={errors.engineCc}
+          onChangeText={(value) => set('engineCc', value)}
+        />
+        <DateField
+          label={t('domain.transport.moto.insuranceExpiry')}
+          value={values.insuranceExpiry}
+          error={errors.insuranceExpiry}
+          onChange={(value) => set('insuranceExpiry', value)}
+        />
+        <NumberField label={t('domain.transport.moto.helmetsProvided')} value={String(values.helmetsProvided ?? 1)} onChangeText={(value) => set('helmetsProvided', value)} />
+        <NumberField label={copy.capacityLabel} value={String(values.quantity ?? 1)} error={errors.quantity} onChangeText={(value) => set('quantity', value)} />
+      </View>
+    );
+  }
   if (domain === 'transport') {
     return (
       <View>
-        <TextField label="Make" value={values.make} onChangeText={(value) => set('make', value)} />
-        <TextField label="Model" value={values.model} onChangeText={(value) => set('model', value)} />
-        <NumberField label="Seats" value={String(values.seats ?? '')} onChangeText={(value) => set('seats', value)} />
-        <BoolField label="Air conditioning" value={Boolean(values.ac)} onChange={(value) => set('ac', value)} />
-        <NumberField label={copy.capacityLabel} value={String(values.quantity ?? 1)} onChangeText={(value) => set('quantity', value)} />
+        <TextField label={t('domain.transport.car.make')} value={values.make} onChangeText={(value) => set('make', value)} />
+        <TextField label={t('domain.transport.car.model')} value={values.model} onChangeText={(value) => set('model', value)} />
+        <NumberField label={t('domain.transport.car.seats')} value={String(values.seats ?? '')} onChangeText={(value) => set('seats', value)} />
+        <BoolField label={t('domain.transport.car.ac')} value={Boolean(values.ac)} onChange={(value) => set('ac', value)} />
+        <NumberField label={copy.capacityLabel} value={String(values.quantity ?? 1)} error={errors.quantity} onChangeText={(value) => set('quantity', value)} />
       </View>
     );
   }
@@ -146,10 +263,12 @@ export function InventoryFields({ category, values = {}, onChange }) {
   return null;
 }
 
-export function BookingFields({ category, values = {}, onChange }) {
+export function BookingFields({ category, values = {}, onChange, errors = {}, listing: listingProp }) {
   const domain = resolveDomain(category);
   const subtype = resolveSubtype(category);
+  const { t } = useTranslation();
   const set = (key, value) => onChange({ ...values, [key]: value });
+  const listing = listingProp || category || {};
 
   if (domain === 'accommodation') {
     return (
@@ -171,17 +290,56 @@ export function BookingFields({ category, values = {}, onChange }) {
     );
   }
   if (domain === 'transport') {
-    const listingDetails = category?.listingAttributes || {};
+    const listingDetails = listing?.listingAttributes || category?.listingAttributes || {};
     const pickupHours = listingDetails.pickupTime || '08:00';
     const returnHours = listingDetails.returnTime || '18:00';
     const pickup = splitDateTimeValue(values.pickupDateTime);
     const ret = splitDateTimeValue(values.returnDateTime);
+    const rentalLocations = resolveRentalLocations(listing);
+    const allowedClasses = licenceClassesFor(subtype)
+      .filter((value) => (
+        !Array.isArray(listingDetails.allowedLicenceClasses)
+        || !listingDetails.allowedLicenceClasses.length
+        || listingDetails.allowedLicenceClasses.includes(value)
+      ))
+      .map((value) => [value, t(`domain.transport.licence.classes.${value}`)]);
+    const needsLicence = subtype === 'car-rental' || subtype === 'motorbike';
+    const requireLicencePhotos = listingDetails.requireLicenceUpload !== false;
+
     return (
       <View>
-        <TextField label="Pickup location" value={values.pickupLocation} onChangeText={(value) => set('pickupLocation', value)} />
-        <TextField label="Return location" value={values.returnLocation} onChangeText={(value) => set('returnLocation', value)} />
+        <Text style={{ fontSize: 13, fontWeight: '800', color: '#0754d7', marginBottom: 4, textTransform: 'uppercase' }}>
+          {t('domain.transport.rentalDetailsTitle')}
+        </Text>
+        <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 10 }}>
+          {t('domain.transport.rentalDetailsHint')}
+        </Text>
+        {rentalLocations.pickupLocation ? (
+          <View style={{ marginBottom: 10, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff' }}>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>{t('domain.transport.pickupLocation')}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#0f172a', marginTop: 2 }}>{rentalLocations.pickupLocation}</Text>
+          </View>
+        ) : null}
+        {rentalLocations.returnLocation ? (
+          <View style={{ marginBottom: 12, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff' }}>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>{t('domain.transport.returnLocation')}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#0f172a', marginTop: 2 }}>{rentalLocations.returnLocation}</Text>
+          </View>
+        ) : null}
+        {errors.pickupLocation ? <Text style={{ color: '#dc2626', marginBottom: 8, fontSize: 13 }}>{errors.pickupLocation}</Text> : null}
+        {errors.returnLocation ? <Text style={{ color: '#dc2626', marginBottom: 8, fontSize: 13 }}>{errors.returnLocation}</Text> : null}
+        {subtype === 'motorbike' ? (
+          <ChipsField
+            label={t('domain.transport.moto.selectedCategory')}
+            options={MOTORBIKE_CATEGORIES.map((value) => [value, t(`domain.transport.moto.categories.${value}`)])}
+            value={values.selectedCategory || ''}
+            error={errors.selectedCategory}
+            help={t('domain.transport.moto.selectedCategoryHelp')}
+            onChange={(value) => set('selectedCategory', value)}
+          />
+        ) : null}
         <DateField
-          label="Pickup date"
+          label={t('domain.transport.pickupDate')}
           value={pickup.date}
           onChange={(value) => onChange({
             ...values,
@@ -208,9 +366,48 @@ export function BookingFields({ category, values = {}, onChange }) {
         />
         {subtype === 'car-rental' ? (
           <>
-            <NumberField label="Driver age" value={String(values.driverAge ?? '')} onChangeText={(value) => set('driverAge', value)} />
-            <TextField label="Driver license number" value={values.driverLicenseNumber} onChangeText={(value) => set('driverLicenseNumber', value)} />
-            <NumberField label="Number of drivers" value={String(values.numberOfDrivers ?? '')} onChangeText={(value) => set('numberOfDrivers', value)} />
+            <NumberField label={t('domain.transport.driverAge')} value={String(values.driverAge ?? '')} error={errors.driverAge} onChangeText={(value) => set('driverAge', value)} />
+            <NumberField label={t('domain.transport.numberOfDrivers')} value={String(values.numberOfDrivers ?? '')} onChangeText={(value) => set('numberOfDrivers', value)} />
+          </>
+        ) : null}
+        {subtype === 'motorbike' ? (
+          <NumberField label={t('domain.transport.moto.riderAge')} value={String(values.driverAge ?? '')} error={errors.driverAge} onChangeText={(value) => set('driverAge', value)} />
+        ) : null}
+        {needsLicence ? (
+          <>
+            <TextField
+              label={t('domain.transport.licence.number')}
+              value={values.driverLicenseNumber}
+              error={errors.driverLicenseNumber}
+              autoCapitalize="characters"
+              onChangeText={(value) => set('driverLicenseNumber', String(value || '').toUpperCase())}
+            />
+            <SelectField
+              label={t('domain.transport.licence.class')}
+              value={values.licenceClass}
+              options={allowedClasses}
+              error={errors.licenceClass}
+              onChange={(value) => set('licenceClass', value)}
+              searchable={false}
+            />
+            {requireLicencePhotos ? (
+              <>
+                <LicencePhotoField
+                  label={t('domain.transport.licence.front')}
+                  help={t('domain.transport.licence.frontHelp')}
+                  value={values.licenceImageFront}
+                  error={errors.licenceImageFront}
+                  onChange={(value) => set('licenceImageFront', value)}
+                />
+                <LicencePhotoField
+                  label={t('domain.transport.licence.back')}
+                  help={t('domain.transport.licence.backHelp')}
+                  value={values.licenceImageBack}
+                  error={errors.licenceImageBack}
+                  onChange={(value) => set('licenceImageBack', value)}
+                />
+              </>
+            ) : null}
           </>
         ) : null}
       </View>
