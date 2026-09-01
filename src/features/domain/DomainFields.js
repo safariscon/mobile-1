@@ -273,9 +273,9 @@ export function BookingFields({ category, values = {}, onChange, errors = {}, li
   if (domain === 'accommodation') {
     return (
       <View>
-        <DateField label="Check-in" value={values.checkIn} onChange={(value) => set('checkIn', value)} />
-        <DateField label="Check-out" value={values.checkOut} onChange={(value) => set('checkOut', value)} />
-        <NumberField label="Guests" value={String(values.guests ?? '')} onChangeText={(value) => set('guests', value)} />
+        <DateField label="Check-in" value={values.checkIn} error={errors.checkIn} onChange={(value) => set('checkIn', value)} />
+        <DateField label="Check-out" value={values.checkOut} error={errors.checkOut} onChange={(value) => set('checkOut', value)} />
+        <NumberField label="Guests" value={String(values.guests ?? '')} error={errors.guests} onChangeText={(value) => set('guests', value)} />
         <MultilineField label="Special requests" value={values.specialRequests} onChangeText={(value) => set('specialRequests', value)} />
       </View>
     );
@@ -341,6 +341,7 @@ export function BookingFields({ category, values = {}, onChange, errors = {}, li
         <DateField
           label={t('domain.transport.pickupDate')}
           value={pickup.date}
+          error={errors.pickupDateTime}
           onChange={(value) => onChange({
             ...values,
             pickupDateTime: joinDateTimeValue(value, pickup.time || pickupHours),
@@ -352,16 +353,19 @@ export function BookingFields({ category, values = {}, onChange, errors = {}, li
         <TimeField
           label="Pickup time"
           value={pickup.time || pickupHours}
+          error={errors.pickupDateTime}
           onChange={(value) => set('pickupDateTime', joinDateTimeValue(pickup.date, value))}
         />
         <DateField
           label="Return date"
           value={ret.date}
+          error={errors.returnDateTime}
           onChange={(value) => set('returnDateTime', joinDateTimeValue(value, ret.time || returnHours))}
         />
         <TimeField
           label="Return time"
           value={ret.time || returnHours}
+          error={errors.returnDateTime}
           onChange={(value) => set('returnDateTime', joinDateTimeValue(ret.date, value))}
         />
         {subtype === 'car-rental' ? (

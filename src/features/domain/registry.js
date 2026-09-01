@@ -44,7 +44,7 @@ export function normalizeCategorySlug(value) {
 }
 
 function slugCandidates(categoryOrSlug) {
-  if (!categoryOrSlug) return [];
+  if (categoryOrSlug == null) return [];
   if (typeof categoryOrSlug === 'string') return [normalizeCategorySlug(categoryOrSlug)].filter(Boolean);
   const nested = categoryOrSlug.category && typeof categoryOrSlug.category === 'object'
     ? categoryOrSlug.category
@@ -76,9 +76,9 @@ function inferTransportSubtype(categoryOrSlug) {
 }
 
 function readSlug(categoryOrSlug) {
-  if (!categoryOrSlug) return '';
+  if (categoryOrSlug == null) return '';
   const candidates = slugCandidates(categoryOrSlug);
-  const domainHint = typeof categoryOrSlug === 'object' ? categoryOrSlug.domain : '';
+  const domainHint = categoryOrSlug.domain || '';
   const known = candidates.find((slug) => {
     const mapped = SLUG_TO_DOMAIN[slug];
     if (!mapped) return false;
@@ -92,14 +92,15 @@ function readSlug(categoryOrSlug) {
 }
 
 export function resolveDomain(categoryOrSlug) {
-  if (!categoryOrSlug) return 'experiences';
+  if (categoryOrSlug == null) return 'experiences';
   const slug = readSlug(categoryOrSlug);
   if (SLUG_TO_DOMAIN[slug]) return SLUG_TO_DOMAIN[slug];
-  if (typeof categoryOrSlug === 'object' && categoryOrSlug.domain) return categoryOrSlug.domain;
+  if (categoryOrSlug.domain) return categoryOrSlug.domain;
   return 'experiences';
 }
 
 export function resolveSubtype(categoryOrSlug) {
+  if (categoryOrSlug == null) return '';
   return readSlug(categoryOrSlug);
 }
 
@@ -136,6 +137,9 @@ export function rangeDays(startDate, endDate) {
 }
 
 export function domainCopy(categoryOrSlug) {
+  if (categoryOrSlug == null) {
+    return { kind: 'option', rangeMode: false, optionNoun: 'option', unitNoun: 'unit', unitNounPlural: 'units', capacityLabel: 'Capacity', startLabel: 'Start', endLabel: 'End' };
+  }
   const domain = resolveDomain(categoryOrSlug);
   const subtype = resolveSubtype(categoryOrSlug);
   if (domain === 'accommodation') {
@@ -335,12 +339,23 @@ export function validateBookingClient(domain, values = {}, { listing = {}, inven
   const listingDetails = listing.listingAttributes || {};
   const inventoryDetails = inventory.attributes || inventory;
   if (domain === 'accommodation') {
+    const today = new Date().toISOString().slice(0, 10);
     if (!values.checkIn) errors.checkIn = 'Check-in is required.';
     if (!values.checkOut) errors.checkOut = 'Check-out is required.';
+    if (values.checkIn && values.checkIn < today) errors.checkIn = 'Check-in cannot be in the past.';
+    const firstCheckIn = listingDetails.firstCheckInMode === 'date' ? String(listingDetails.firstCheckInDate || '').slice(0, 10) : '';
+    if (values.checkIn && firstCheckIn && values.checkIn < firstCheckIn) {
+      errors.checkIn = `Guests can check in from ${firstCheckIn}.`;
+    }
     if (values.checkIn && values.checkOut && values.checkOut <= values.checkIn) errors.checkOut = 'Check-out must be after check-in.';
     if (!(Number(values.guests) > 0)) errors.guests = 'Guests must be at least 1.';
     if (Number(inventoryDetails.maxGuests) > 0 && Number(values.guests) > Number(inventoryDetails.maxGuests)) {
       errors.guests = `Maximum ${inventoryDetails.maxGuests} guests for this room.`;
+    }
+    const maxStay = Number(listingDetails.maxStayNights) || (listingDetails.allowLongStays ? 90 : 30);
+    if (values.checkIn && values.checkOut) {
+      const nights = Math.round((new Date(`${values.checkOut}T12:00:00Z`) - new Date(`${values.checkIn}T12:00:00Z`)) / 86400000);
+      if (nights > maxStay) errors.checkOut = `Maximum stay is ${maxStay} nights.`;
     }
   }
   if (domain === 'transport') {
@@ -362,6 +377,25 @@ export function validateBookingClient(domain, values = {}, { listing = {}, inven
       const days = rangeDays(pickup.date, ret.date);
       if (days > 0 && days < minDays) errors.returnDateTime = `Minimum rental is ${minDays} day${minDays === 1 ? '' : 's'}.`;
       if (days > 0 && maxDays > 0 && days > maxDays) errors.returnDateTime = `Maximum rental is ${maxDays} day${maxDays === 1 ? '' : 's'}.`;
+      if (values.pickupDateTime && values.returnDateTime) {
+        const pickupMs = new Date(values.pickupDateTime).getTime();
+        const returnMs = new Date(values.returnDateTime).getTime();
+        if (!Number.isNaN(pickupMs) && !Number.isNaN(returnMs) && returnMs <= pickupMs) {
+          errors.returnDateTime = 'Return time must be after pickup time.';
+        }
+      }
+      const openFrom = String(listingDetails.pickupTime || '').slice(0, 5);
+      const closeBy = String(listingDetails.returnTime || '').slice(0, 5);
+      if (openFrom && pickup.time && pickup.time < openFrom) {
+        errors.pickupDateTime = `Pickup starts from ${openFrom}.`;
+      }
+      if (closeBy && ret.time && ret.time > closeBy) {
+        errors.returnDateTime = `Return by ${closeBy}.`;
+      }
+      const pickupMs = new Date(values.pickupDateTime).getTime();
+      if (values.pickupDateTime && !Number.isNaN(pickupMs) && pickupMs < Date.now() - 60 * 1000) {
+        errors.pickupDateTime = 'Pickup cannot be in the past.';
+      }
     }
     if (transportSubtype === 'car-rental') {
       if (!(Number(values.driverAge) >= 18)) errors.driverAge = 'Driver age must be at least 18.';

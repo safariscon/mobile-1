@@ -13,11 +13,12 @@ import { MultilineField, NumberField, SelectField, TextField } from './FormField
 import { BookingFields } from '../features/domain/DomainFields';
 import {
   emptyBookingValues,
-  firstError,
   mapBookingToSchedule,
   resolveDomain,
-  validateBookingClient,
+  splitDateTimeValue,
 } from '../features/domain/registry';
+import { parseOptionAvailability } from '../lib/availability';
+import { validateStayStepBooking, mapApiErrorToStayFieldErrors } from '../lib/stayStepValidation';
 import PaymentSheet from './PaymentSheet';
 import ServiceLocationPicker from './ServiceLocationPicker';
 import BookingPassCard from './BookingPassCard';
@@ -336,6 +337,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     return defaults;
   });
   const [bookingAttributes, setBookingAttributes] = useState(() => emptyBookingValues(domain));
+  const [bookingAttributeErrors, setBookingAttributeErrors] = useState({});
   const [selectedOptionId, setSelectedOptionId] = useState(getOptionValue(options[0]));
   const [submitting, setSubmitting] = useState(false);
   const [verifyingRebook, setVerifyingRebook] = useState(false);
@@ -349,6 +351,11 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
   const [pin, setPin] = useState({ latitude: '', longitude: '' });
   const [availability, setAvailability] = useState(null);
   const selectedOption = options.find((option) => getOptionValue(option) === selectedOptionId) || options[0];
+  const optionSchedule = useMemo(
+    () => parseOptionAvailability(selectedOption || {}, { ...service, domain }),
+    [selectedOption, service, domain]
+  );
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const locationText = service?.generalLocation || service?.location?.generalLocation || t('common.rwanda');
   const bookingMode = resolveBookingMode(marketplaceSettings, service);
 
@@ -360,21 +367,26 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     return () => { active = false; };
   }, []);
 
+  const pickupDate = splitDateTimeValue(bookingAttributes.pickupDateTime).date;
+  const returnDate = splitDateTimeValue(bookingAttributes.returnDateTime).date;
+
   useEffect(() => {
     const hotelId = service?.hotelId || service?.id;
     const optionId = getOptionValue(selectedOption);
     if (!hotelId) return undefined;
     let active = true;
-    fetchServiceAvailability(hotelId, optionId, {
-      checkIn: bookingAttributes.checkIn,
-      checkOut: bookingAttributes.checkOut,
-    }).then((data) => {
+    const availabilityQuery = domain === 'accommodation'
+      ? { checkIn: bookingAttributes.checkIn, checkOut: bookingAttributes.checkOut }
+      : (domain === 'transport' && pickupDate && returnDate && returnDate > pickupDate
+        ? { checkIn: pickupDate, checkOut: returnDate }
+        : {});
+    fetchServiceAvailability(hotelId, optionId, availabilityQuery).then((data) => {
       if (active) setAvailability(data);
     }).catch(() => {
       if (active) setAvailability(null);
     });
     return () => { active = false; };
-  }, [service?.hotelId, service?.id, selectedOptionId, bookingAttributes.checkIn, bookingAttributes.checkOut]);
+  }, [service?.hotelId, service?.id, selectedOptionId, domain, bookingAttributes.checkIn, bookingAttributes.checkOut, pickupDate, returnDate]);
 
   const updateValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   const updateCustomValue = (key, value) => setCustomValues((current) => ({ ...current, [key]: value }));
@@ -383,11 +395,27 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
     if (!service?.hotelId && !service?.id) return t('bookingForm.unavailable');
     if (['unavailable', 'inactive', 'sold-out'].includes(String(service?.status || service?.availabilityStatus || '').toLowerCase())) return t('bookingForm.unavailable');
     if (!selectedOption) return t('bookingForm.chooseOptionError');
-    const schemaError = firstError(validateBookingClient(domain, bookingAttributes, {
+
+    const mapped = mapBookingToSchedule(domain, bookingAttributes);
+    const { fieldErrors, message } = validateStayStepBooking({
+      domain,
+      stayAttributes: bookingAttributes,
+      optionSchedule,
+      bookingValues: {
+        bookingDate: mapped.startDate || values.bookingDate,
+        endBookingDate: mapped.endDate || values.endDate,
+        startTime: mapped.startTime || values.startTime,
+        endTime: mapped.endTime || values.endTime,
+      },
+      today,
       listing: service,
       inventory: selectedOption || {},
-    }));
-    if (schemaError) return schemaError;
+    });
+    if (Object.keys(fieldErrors).length) {
+      setBookingAttributeErrors(fieldErrors);
+      return message || 'Complete the required booking details.';
+    }
+    setBookingAttributeErrors({});
     if (availability?.remaining != null && Number(availability.remaining) <= 0) {
       return t('bookingForm.fullyBooked');
     }
@@ -472,6 +500,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
       }));
       const checkIn = schedule.startDate || values.bookingDate || null;
       const checkOut = schedule.endDate || values.endDate || schedule.startDate || values.bookingDate || null;
+      const isAccommodation = domain === 'accommodation';
       const customerLocationDetails = {
         country: values.customerCountry || pin.country || 'Rwanda',
         countryCode: values.customerCountryCode || pin.countryCode || 'RW',
@@ -498,8 +527,7 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
         numberOfPeople: people,
         guests: people,
         totalConsumptionUnits: quantity * people,
-        checkIn,
-        checkOut,
+        ...(isAccommodation ? { checkIn, checkOut } : {}),
         bookingDate: checkIn,
         endBookingDate: checkOut,
         startTime: schedule.startTime || values.startTime,
@@ -549,7 +577,13 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           : 'Booking request sent. Wait for provider review before paying.');
       }
     } catch (requestError) {
-      setError(requestError.message || t('bookingForm.submitFailed'));
+      const apiMessage = requestError.message || t('bookingForm.submitFailed');
+      const apiFieldErrors = mapApiErrorToStayFieldErrors(domain, apiMessage);
+      if (Object.keys(apiFieldErrors).length) {
+        setBookingAttributeErrors(apiFieldErrors);
+        setStep(1);
+      }
+      setError(apiMessage);
     } finally {
       setSubmitting(false);
     }
@@ -569,7 +603,12 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
 
         <Text style={styles.formTitle}>{service?.title || service?.name || t('bookingForm.title')}</Text>
         <View style={styles.stepRow}>
-          {['Stay', 'Details', 'Pay'].map((label, index) => (
+          {(domain === 'transport'
+            ? ['Rental', 'Details', 'Pay']
+            : domain === 'accommodation'
+              ? ['Stay', 'Details', 'Pay']
+              : ['Booking', 'Details', 'Pay']
+          ).map((label, index) => (
             <View key={label} style={[styles.stepChip, step === index + 1 && styles.stepChipActive]}>
               <Text style={[styles.stepChipText, step === index + 1 && styles.stepChipTextActive]}>{index + 1}. {label}</Text>
             </View>
@@ -596,7 +635,16 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
             </Text>
           ) : null}
           <View style={{ marginBottom: 8 }}>
-            <BookingFields category={service} listing={service} values={bookingAttributes} onChange={setBookingAttributes} />
+            <BookingFields
+              category={service}
+              listing={service}
+              values={bookingAttributes}
+              errors={bookingAttributeErrors}
+              onChange={(next) => {
+                setBookingAttributes(next);
+                setBookingAttributeErrors({});
+              }}
+            />
           </View>
             </>
           ) : null}
