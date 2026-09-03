@@ -1,35 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { ACCEPT_BAR, POLICY_CONTENT, POLICY_TABS, SUPPORT_CONTACT } from '../lib/policyContent';
+import {
+  buildAcceptBar,
+  buildPolicyContent,
+  POLICY_TAB_KEYS,
+  SUPPORT_CONTACT,
+} from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
 let styles;
 
-const TAB_META = {
-  'how-it-works': { short: 'How it works', icon: 'compass' },
-  terms: { short: 'Terms', icon: 'file-text' },
-  privacy: { short: 'Privacy', icon: 'shield' },
-  payments: { short: 'Payments', icon: 'credit-card' },
-};
-
 export default function PoliciesScreen({ initialTab = 'how-it-works', requireAccept = false, onClose }) {
+  const { t } = useTranslation();
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
   const { acceptTerms, loading, logout, user } = useAuth();
   const [tab, setTab] = useState(initialTab);
   const [error, setError] = useState('');
-  const page = POLICY_CONTENT[tab] || POLICY_CONTENT['how-it-works'];
+  const policyContent = useMemo(() => buildPolicyContent(t), [t]);
+  const acceptBar = useMemo(() => buildAcceptBar(t), [t]);
+  const page = policyContent[tab] || policyContent['how-it-works'];
   const showAcceptBar = requireAccept && tab === 'terms';
 
   useEffect(() => {
-    setTab(POLICY_CONTENT[initialTab] ? initialTab : 'how-it-works');
-  }, [initialTab]);
+    setTab(policyContent[initialTab] ? initialTab : 'how-it-works');
+  }, [initialTab, policyContent]);
 
   const submit = async () => {
     setError('');
@@ -41,11 +43,11 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>Welcome to SafarisCon</Text>
+          <Text style={styles.eyebrow}>{t('policy.welcomeEyebrow')}</Text>
           <Text style={styles.headerTitle} numberOfLines={2}>
             {page.title}
           </Text>
-          <Text style={styles.headerSubtitle}>Read each section below before you continue.</Text>
+          <Text style={styles.headerSubtitle}>{t('policy.readBeforeContinue')}</Text>
         </View>
         {onClose ? (
           <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.84}>
@@ -55,9 +57,8 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
       </View>
 
       <View style={styles.tabGrid}>
-        {POLICY_TABS.map((item) => {
+        {POLICY_TAB_KEYS.map((item) => {
           const active = tab === item.key;
-          const meta = TAB_META[item.key] || { short: item.label, icon: 'file-text' };
           return (
             <TouchableOpacity
               key={item.key}
@@ -66,10 +67,10 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
               activeOpacity={0.86}
             >
               <View style={[styles.tabIconWrap, active && styles.tabIconWrapActive]}>
-                <Feather name={meta.icon} size={15} color={active ? colors.white : colors.primary} />
+                <Feather name={item.icon} size={15} color={active ? colors.white : colors.primary} />
               </View>
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]} numberOfLines={1}>
-                {meta.short}
+                {t(item.shortKey)}
               </Text>
             </TouchableOpacity>
           );
@@ -86,7 +87,7 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
         </View>
 
         {page.steps?.map((step, index) => (
-          <View key={step.title} style={styles.stepCard}>
+          <View key={`${step.title}-${index}`} style={styles.stepCard}>
             <View style={styles.stepNumber}>
               <Text style={styles.stepNumberText}>{index + 1}</Text>
             </View>
@@ -119,8 +120,8 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
         {page.sections?.map((section) => (
           <View key={section.title} style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
-            {section.items.map((item) => (
-              <View key={item} style={styles.bulletRow}>
+            {section.items.map((item, index) => (
+              <View key={`${section.title}-${index}`} style={styles.bulletRow}>
                 <View style={styles.bullet} />
                 <Text style={styles.body}>{item}</Text>
               </View>
@@ -142,14 +143,14 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
         </TouchableOpacity>
 
         {user?.role === 'admin' && requireAccept ? (
-          <Text style={styles.footerNote}>Admins skip this acceptance gate.</Text>
+          <Text style={styles.footerNote}>{t('policy.adminSkipNote')}</Text>
         ) : null}
       </ScrollView>
 
       {showAcceptBar ? (
         <View style={styles.acceptBar}>
-          <Text style={styles.acceptTitle}>{ACCEPT_BAR.title}</Text>
-          <Text style={styles.acceptBody}>{ACCEPT_BAR.body}</Text>
+          <Text style={styles.acceptTitle}>{acceptBar.title}</Text>
+          <Text style={styles.acceptBody}>{acceptBar.body}</Text>
           {!!error && <Text style={styles.error}>{error}</Text>}
           <TouchableOpacity
             style={[styles.acceptButton, loading && styles.disabled]}
@@ -160,11 +161,11 @@ export default function PoliciesScreen({ initialTab = 'how-it-works', requireAcc
             {loading ? (
               <ActivityIndicator color={colors.white} />
             ) : (
-              <Text style={styles.acceptButtonText}>{ACCEPT_BAR.accept}</Text>
+              <Text style={styles.acceptButtonText}>{acceptBar.accept}</Text>
             )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.declineButton} onPress={logout} activeOpacity={0.84}>
-            <Text style={styles.declineText}>{ACCEPT_BAR.decline}</Text>
+            <Text style={styles.declineText}>{acceptBar.decline}</Text>
           </TouchableOpacity>
         </View>
       ) : null}

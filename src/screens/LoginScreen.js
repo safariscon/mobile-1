@@ -15,7 +15,10 @@ function getLoginErrorDetails(message) {
   const original = String(message || '').trim();
   const text = original.toLowerCase();
   if (text.includes('timed out') || text.includes('backend request')) {
-    return { message: original || 'Backend request timed out.', cause: 'Cause: the app could not reach the backend before the request timeout.' };
+    return {
+      message: original || 'Backend request timed out.',
+      cause: 'Cause: the backend took longer than the app wait time (login/OTP waits up to 45s). Email may still arrive — check your inbox and try again.',
+    };
   }
   if (text.includes('network request') || text.includes('failed to fetch') || text.includes('backend is not reachable')) {
     return { message: original || 'Backend is not reachable.', cause: 'Cause: check the API address, backend server, CORS, or device network.' };

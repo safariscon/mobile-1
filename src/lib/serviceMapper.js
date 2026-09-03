@@ -79,15 +79,39 @@ export function collectImages(service) {
 
 export function resolveServiceLocation(service) {
   const map = service?.map || {};
-  const serviceLocation = service?.serviceLocation || service?.locationDetails || service?.location || {};
-  const latitude = numberFrom(map.latitude, serviceLocation.latitude, serviceLocation.lat);
-  const longitude = numberFrom(map.longitude, serviceLocation.longitude, serviceLocation.lng, serviceLocation.lon);
+  const serviceLocation = service?.serviceLocation || {};
+  const locationDetails = service?.locationDetails || {};
+  const catalogLocation = service?.catalogLocation || {};
+  const contact = service?.contactDetails || {};
+  const legacyLocation = typeof service?.location === 'object' && service?.location ? service.location : {};
+  const source = { ...legacyLocation, ...locationDetails, ...catalogLocation, ...serviceLocation };
+
+  const latitude = numberFrom(
+    map.latitude,
+    source.latitude,
+    source.lat,
+    contact.latitude
+  );
+  const longitude = numberFrom(
+    map.longitude,
+    source.longitude,
+    source.lng,
+    source.lon,
+    contact.longitude
+  );
+  const province = firstValue(source.province, source.state, locationDetails.province, map.province);
+  const district = firstValue(source.district, source.city, locationDetails.district, map.district, service?.generalLocation);
+  const sector = firstValue(source.sector, locationDetails.sector, map.sector);
+  const cell = firstValue(source.cell, locationDetails.cell, map.cell);
+  const village = firstValue(source.village, locationDetails.village, map.village);
   const formattedAddress = firstValue(
     map.formattedAddress,
-    serviceLocation.formattedAddress,
-    serviceLocation.fullAddress,
+    source.formattedAddress,
+    source.fullAddress,
+    contact.exactAddress,
+    typeof service?.location === 'string' ? service.location : '',
     service?.address,
-    [serviceLocation.city, serviceLocation.state, serviceLocation.country].filter(Boolean).join(', ')
+    [village, cell, sector, district, province, source.country || 'Rwanda'].filter(Boolean).join(', ')
   );
   const hasCoordinates = latitude !== 0 || longitude !== 0;
   const googleMapsUrl = firstValue(
@@ -105,10 +129,18 @@ export function resolveServiceLocation(service) {
     formattedAddress: formattedAddress || '',
     googleMapsUrl,
     osmUrl,
-    district: firstValue(service?.generalLocation, serviceLocation.district, serviceLocation.city, service?.destinationLocation),
-    country: serviceLocation.country || '',
-    state: serviceLocation.state || serviceLocation.province || '',
-    city: serviceLocation.city || '',
+    name: firstValue(source.name, service?.name, service?.title),
+    placeId: firstValue(source.placeId, map.placeId),
+    locationSource: firstValue(source.locationSource, map.locationSource),
+    isExactLocationVerified: Boolean(source.isExactLocationVerified || map.isExactLocationVerified),
+    country: firstValue(source.country, 'Rwanda'),
+    province,
+    district,
+    sector,
+    cell,
+    village,
+    state: province,
+    city: district,
   };
 }
 
@@ -315,16 +347,22 @@ export function normalizeServiceDetail(item, index = 0) {
       }];
 
   const provider = {
+    id: firstValue(item.provider?.id, item.provider?._id, item.ownerUserId),
     name: firstValue(item.provider?.name, item.providerName, item.sellerName, item.businessName),
     email: firstValue(item.provider?.email, item.providerEmail, item.contactDetails?.email),
     phone: firstValue(
       item.provider?.phone,
+      item.providerPhone,
       item.contactDetails?.phoneE164,
       item.contactDetails?.phone,
       item.contactDetails?.whatsappE164,
       item.contactDetails?.whatsapp
     ),
     sellerId: firstValue(item.provider?.sellerId, item.sellerId, item.providerId),
+    role: firstValue(item.provider?.role, ''),
+    emailVerified: Boolean(item.provider?.emailVerified),
+    createdAt: item.provider?.createdAt || null,
+    payoutDetails: item.provider?.payoutDetails || item.payoutDetails || null,
   };
 
   return {
@@ -371,19 +409,34 @@ export function normalizeServiceDetail(item, index = 0) {
     images: imageUrls,
     imageItems: images,
     map: {
+      ...location,
       latitude: location.latitude,
       longitude: location.longitude,
       formattedAddress: location.formattedAddress,
       googleMapsUrl: location.googleMapsUrl,
       osmUrl: location.osmUrl,
     },
-    serviceLocation: item.serviceLocation || item.locationDetails || item.location || {},
+    serviceLocation: {
+      ...(typeof item.serviceLocation === 'object' ? item.serviceLocation : {}),
+      ...location,
+    },
+    locationDetails: item.locationDetails || {},
+    catalogLocation: item.catalogLocation || null,
     location,
-    generalLocation: firstValue(item.generalLocation, location.district, location.formattedAddress, i18n.t('common.rwanda')),
+    generalLocation: firstValue(
+      item.generalLocation,
+      [location.district, location.sector, location.province].filter(Boolean).join(', '),
+      location.formattedAddress,
+      i18n.t('common.rwanda')
+    ),
     provider,
     providerName: provider.name,
+    providerEmail: provider.email,
+    providerPhone: provider.phone,
     sellerId: provider.sellerId,
     contactDetails: item.contactDetails || {},
+    contactInfo: item.contactInfo || '',
+    payoutDetails: item.payoutDetails || provider.payoutDetails || {},
     amenities: Array.isArray(item.amenities) && item.amenities.length
       ? item.amenities.filter(Boolean)
       : Array.isArray(item.listingAttributes?.amenities) ? item.listingAttributes.amenities.filter(Boolean) : [],
@@ -391,11 +444,16 @@ export function normalizeServiceDetail(item, index = 0) {
     options,
     bookingForm: item.bookingForm || { fields: [] },
     bookingRules: item.bookingRules || {},
+    checkInWindow: item.checkInWindow || {},
+    rebookSettings: item.rebookSettings || {},
     promotion: item.promotion || item.primaryService?.promotion || null,
+    review: item.review || null,
     approvalStatus: serviceApprovalStatus(item),
     isFeatured: Boolean(item.isFeatured || item.featured),
     rating: numberFrom(item.rating, item.averageRating, item.reviewScore, 0),
     reviewCount: numberFrom(item.reviewCount, item.reviewsCount),
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null,
     seller: {
       verified: serviceApprovalStatus(item) === 'approved',
       status: firstValue(item.approvalStatus, item.status, 'pending'),

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "safarisconapp",
-    "slug": "safarisconapp",
+    "name": "SafarisCon",
+    "slug": "safariscon",
     "version": "1.0.0",
     "scheme": "safariscon",
     "orientation": "portrait",
@@ -26,7 +26,8 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
@@ -60,8 +61,8 @@
       "expo-web-browser"
     ],
     "extra": {
-      "eas": {
-        "projectId": "51d4e64f-5338-4856-aee4-0d50b504d854"
+    "eas": {
+        "projectId": "8004554f-2a3c-42f9-9fc2-7d06a23e295e"
       }
     }
   }

@@ -260,9 +260,8 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
         <TouchableOpacity style={styles.iconButton} onPress={onMenuPress || onBack} activeOpacity={0.8}>
           <Feather name={onMenuPress ? 'menu' : 'arrow-left'} size={19} color={colors.text} />
         </TouchableOpacity>
-        <View>
+        <View style={styles.topBarCenter}>
           <Text style={styles.topTitle}>{t('servicesScreen.title')}</Text>
-          <Text style={styles.topSub}>{t('servicesScreen.availableNow', { count: filteredServices.length })}</Text>
         </View>
         <TouchableOpacity style={styles.iconButton} onPress={clearFilters} activeOpacity={0.8}>
           <Feather name="sliders" size={18} color={colors.text} />
@@ -280,8 +279,10 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
         />
       </View>
 
-      <View style={styles.searchControls}>
+      <View style={styles.filtersPanel}>
         <SelectField
+          compact
+          style={styles.filterField}
           label={t('servicesScreen.serviceName')}
           value={serviceFilter}
           options={serviceOptions}
@@ -289,16 +290,17 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
           placeholder={t('servicesScreen.allServices')}
         />
         <SelectField
+          compact
+          style={styles.filterField}
           label={t('servicesScreen.location')}
           value={locationFilter}
           options={locationOptions}
           onChange={setLocationFilter}
           placeholder={t('servicesScreen.selectDistrict')}
         />
-      </View>
-
-      <View style={styles.searchControls}>
         <SelectField
+          compact
+          style={styles.filterField}
           label={t('servicesScreen.sortBy')}
           value={sortBy}
           options={sortOptions}
@@ -311,26 +313,26 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
           onPress={() => setAvailableOnly((value) => !value)}
           activeOpacity={0.84}
         >
-          <Feather name={availableOnly ? 'check-square' : 'square'} size={18} color={availableOnly ? colors.white : colors.primary} />
+          <Feather name={availableOnly ? 'check-square' : 'square'} size={16} color={availableOnly ? colors.white : colors.primary} />
           <Text style={[styles.availableToggleText, availableOnly && styles.availableToggleTextActive]}>{t('servicesScreen.availableOnly')}</Text>
         </TouchableOpacity>
-      </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        {filters.map(([filter, labelKey]) => {
-          const isActive = activeFilter === filter;
-          return (
-            <TouchableOpacity
-              key={filter}
-              style={[styles.filter, isActive && styles.filterActive]}
-              activeOpacity={0.85}
-              onPress={() => setActiveFilter(filter)}
-            >
-              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{t(labelKey)}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          {filters.map(([filter, labelKey]) => {
+            const isActive = activeFilter === filter;
+            return (
+              <TouchableOpacity
+                key={filter}
+                style={[styles.filter, isActive && styles.filterActive]}
+                activeOpacity={0.85}
+                onPress={() => setActiveFilter(filter)}
+              >
+                <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{t(labelKey)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {activeChips.length ? (
         <View style={styles.activeFilters}>
@@ -348,6 +350,11 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
 
       {locationFilter ? <Text style={styles.locationResultText}>{t('servicesScreen.inLocation', { location: locationFilter })}</Text> : null}
 
+      <View style={styles.resultsHeader}>
+        {hideTopBar ? <Text style={styles.resultsTitle}>{t('servicesScreen.title')}</Text> : <View />}
+        <Text style={styles.resultsCount}>{t('servicesScreen.availableNow', { count: filteredServices.length })}</Text>
+      </View>
+
       {!!error && (
         <TouchableOpacity style={styles.statusBox} activeOpacity={0.8} onPress={retry}>
           <Text style={styles.statusTitle}>{t('servicesScreen.unavailable')}</Text>
@@ -364,6 +371,7 @@ export default function ServicesScreen({ onBack, onMenuPress, onRequireAuth, onO
         keyExtractor={keyExtractor}
         renderItem={renderService}
         ListHeaderComponent={header}
+        ItemSeparatorComponent={() => <View style={styles.listGap} />}
         ListEmptyComponent={!loading ? <Text style={styles.noResultsText}>{t('servicesScreen.empty')}</Text> : null}
         ListFooterComponent={loading || loadingMore ? (
           <View style={styles.loadingRow}>
@@ -441,15 +449,15 @@ const createStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: 16,
-    paddingTop: 18,
-    paddingBottom: 26,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 24,
   },
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   iconButton: {
     alignItems: 'center',
@@ -467,38 +475,49 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
   },
-  topSub: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 2,
-    textAlign: 'center',
+  topBarCenter: {
+    flex: 1,
   },
   searchBox: {
     alignItems: 'center',
     ...baseInputStyle(colors),
-    borderRadius: 14,
+    borderRadius: 12,
     flexDirection: 'row',
-    height: 48,
-    paddingHorizontal: 14,
+    height: 44,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+  },
+  filtersPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  filterField: {
+    marginTop: 0,
   },
   input: {
     ...passwordFieldStyle(colors),
     flex: 1,
     fontSize: 13,
-    marginLeft: 9,
+    marginLeft: 8,
   },
   filterRow: {
-    gap: 9,
-    paddingVertical: 14,
+    gap: 8,
+    paddingTop: 2,
   },
   filter: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
     borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   filterActive: {
     backgroundColor: colors.primary,
@@ -514,9 +533,9 @@ const createStyles = (colors) => StyleSheet.create({
   },
   statusBox: {
     backgroundColor: colors.primaryLight,
-    borderRadius: 13,
-    marginBottom: 12,
-    padding: 13,
+    borderRadius: 12,
+    marginBottom: 8,
+    padding: 12,
   },
   statusTitle: {
     color: colors.primaryDark,
@@ -532,8 +551,29 @@ const createStyles = (colors) => StyleSheet.create({
   loadingRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  listGap: {
+    height: 10,
+  },
+  resultsHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    marginTop: 2,
+  },
+  resultsTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  resultsCount: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
   },
   loadingText: {
     color: colors.muted,
@@ -651,23 +691,21 @@ const createStyles = (colors) => StyleSheet.create({
     fontWeight: '900',
   },
   searchControls: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
+    flexDirection: 'column',
+    gap: 8,
   },
   availableToggle: {
     alignItems: 'center',
-    alignSelf: 'flex-end',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    flex: 1,
     flexDirection: 'row',
     gap: 8,
-    minHeight: 46,
+    minHeight: 42,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    width: '100%',
   },
   availableToggleActive: {
     backgroundColor: colors.primary,
@@ -685,8 +723,9 @@ const createStyles = (colors) => StyleSheet.create({
   activeFilters: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 6,
+    marginTop: 2,
   },
   activeChip: {
     alignItems: 'center',
@@ -716,14 +755,14 @@ const createStyles = (colors) => StyleSheet.create({
   },
   locationResultText: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   noResultsText: {
     color: colors.muted,
     fontSize: 14,
-    marginTop: 20,
+    marginTop: 12,
     textAlign: 'center',
   },
   endText: {

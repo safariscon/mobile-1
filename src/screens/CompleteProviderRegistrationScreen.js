@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { SelectField, TextField } from '../components/FormFields';
 import PolicyLinks from '../components/PolicyLinks';
 import { useAuth } from '../context/AuthContext';
-import { CHECKBOX_COPY } from '../lib/policyContent';
+import { buildCheckboxCopy } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import { baseInputStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -18,6 +18,7 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
   colors = themed.colors;
   styles = themed.styles;
   const { t } = useTranslation();
+  const checkboxCopy = buildCheckboxCopy(t);
   const { completeProviderRegistration, fetchProviderOnboarding, loading } = useAuth();
   const [providerName, setProviderName] = useState('');
   const [providerEmail, setProviderEmail] = useState('');
@@ -129,7 +130,7 @@ export default function CompleteProviderRegistrationScreen({ onBack, onNavigateT
             <View style={[styles.box, acceptedTerms && styles.boxActive]}>
               {acceptedTerms ? <Feather name="check" size={13} color={colors.white} /> : null}
             </View>
-            <Text style={styles.checkboxText}>{CHECKBOX_COPY.register}</Text>
+            <Text style={styles.checkboxText}>{checkboxCopy.register}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSubmit} disabled={loading} activeOpacity={0.86}>

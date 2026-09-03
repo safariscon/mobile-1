@@ -276,9 +276,11 @@ function buildLocationPayload(location = {}) {
     city: location.city || location.district || '',
     area: location.area || location.sector || '',
     placeName: location.placeName || '',
+    referenceName: location.referenceName || location.landmark || '',
     placeId: location.placeId || '',
     street: location.street || '',
     locationSource: location.locationSource || 'map_click',
+    isExactLocationVerified: Boolean(location.isExactLocationVerified),
   };
 }
 
@@ -335,6 +337,15 @@ export function buildServicePayload(form, { category } = {}) {
     },
     contactDetails,
     listingAttributes: form.listingAttributes || {},
+    paymentPolicy: {
+      depositPercentage: Math.max(20, Math.min(100, Number(form.paymentPolicy?.depositPercentage) || 50)),
+      remainingPaymentMethod: form.paymentPolicy?.remainingPaymentMethod || 'PAY_AT_ARRIVAL',
+    },
+    cancellationPolicy: {
+      type: form.cancellationPolicy?.type || 'moderate',
+      freeCancellationUntilHours: Number(form.cancellationPolicy?.freeCancellationUntilHours) || 24,
+      depositRefundable: Boolean(form.cancellationPolicy?.depositRefundable),
+    },
     rebookSettings: {
       requestDeadlineHours: Number(form.rebookSettings?.requestDeadlineHours) || 24,
       rebookIdValidityHours: Number(form.rebookSettings?.rebookIdValidityHours) || 72,

@@ -20,10 +20,12 @@ import {
 import { parseOptionAvailability } from '../lib/availability';
 import { validateStayStepBooking, mapApiErrorToStayFieldErrors } from '../lib/stayStepValidation';
 import PaymentSheet from './PaymentSheet';
+import ServiceLocationMap from './ServiceLocationMap';
 import ServiceLocationPicker from './ServiceLocationPicker';
 import BookingPassCard from './BookingPassCard';
 import { lightColors } from '../theme/colors';
 import { pinIsSet } from '../lib/bookingVerification';
+import { resolveServiceLocation } from '../lib/serviceMapper';
 import useThemedStyles from '../theme/useThemedStyles';
 
 let colors = lightColors;
@@ -109,6 +111,7 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
   const options = asList(displayService?.options);
   const amenities = asList(displayService?.amenities);
   const locationText = displayService?.generalLocation || displayService?.location?.generalLocation || displayService?.location?.district || service?.generalLocation || t('common.rwanda');
+  const mapLocation = resolveServiceLocation(displayService || service || {});
   const promotion = getVisiblePromotion(displayService?.promotion || service?.promotion);
   const inventoryLabel = inventoryStatusLabel(displayService?.inventoryStatus || displayService?.status || displayService?.availabilityStatus);
   const unavailable = ['unavailable', 'inactive', 'sold-out', 'out-of-stock', 'fully-booked', 'temporarily-unavailable'].includes(String(displayService?.inventoryStatus || displayService?.status || displayService?.availabilityStatus || '').toLowerCase());
@@ -173,7 +176,25 @@ export default function ServiceDetailsModal({ visible, onClose, service, onRequi
             <Text style={styles.title}>{displayService?.name || displayService?.title}</Text>
             <View style={styles.locationRow}>
               <Feather name="map-pin" size={14} color={colors.muted} />
-              <Text style={styles.locationText}>{locationText}</Text>
+              <Text style={styles.locationText}>{mapLocation.formattedAddress || locationText}</Text>
+            </View>
+
+            <View style={styles.mapCard}>
+              <ServiceLocationMap
+                latitude={mapLocation.latitude}
+                longitude={mapLocation.longitude}
+                formattedAddress={mapLocation.formattedAddress || locationText}
+                googleMapsUrl={mapLocation.googleMapsUrl}
+                osmUrl={mapLocation.osmUrl}
+              />
+              {(mapLocation.province || mapLocation.district || mapLocation.sector) ? (
+                <View style={styles.locationFacts}>
+                  {mapLocation.province ? <Text style={styles.locationFact}>Province: {mapLocation.province}</Text> : null}
+                  {mapLocation.district ? <Text style={styles.locationFact}>District: {mapLocation.district}</Text> : null}
+                  {mapLocation.sector ? <Text style={styles.locationFact}>Sector: {mapLocation.sector}</Text> : null}
+                  {mapLocation.cell ? <Text style={styles.locationFact}>Cell: {mapLocation.cell}</Text> : null}
+                </View>
+              ) : null}
             </View>
 
             {loading ? (
@@ -655,7 +676,13 @@ function BookingRequestForm({ service, user, onBack, onClose }) {
           <TextField label={t('bookingForm.phone')} value={values.phone} onChangeText={(text) => updateValue('phone', text)} keyboardType="phone-pad" />
           <TextField label={t('bookingForm.email')} value={values.email} onChangeText={(text) => updateValue('email', text)} keyboardType="email-address" autoCapitalize="none" />
           <NumberField label={t('bookingForm.quantity')} value={values.quantity} onChangeText={(text) => updateValue('quantity', text)} />
-          <ServiceLocationPicker value={pin} onChange={setPin} />
+          <ServiceLocationPicker
+            mode="customer"
+            title="Your meeting / pickup pin"
+            help="Search your location or drop a pin so the provider can find you."
+            value={pin}
+            onChange={setPin}
+          />
           <View style={styles.rebookRow}>
             <View style={{ flex: 1 }}>
               <TextField label="Re-book ID" value={values.rebookId} onChangeText={(text) => { updateValue('rebookId', text); setVerifiedRebookId(''); }} autoCapitalize="characters" />
@@ -1176,6 +1203,18 @@ const createStyles = (colors) => StyleSheet.create({
     flex: 1,
     fontSize: 13,
     fontWeight: '800',
+  },
+  mapCard: {
+    marginTop: 12,
+  },
+  locationFacts: {
+    gap: 4,
+    marginTop: 8,
+  },
+  locationFact: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
   },
   loadingBox: {
     alignItems: 'center',

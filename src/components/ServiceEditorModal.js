@@ -26,13 +26,13 @@ import {
   emptyListingValues,
   firstError,
   domainCopy,
+  remainingPaymentOptions,
   resolveDomain,
   resolveSubtype,
   validateInventoryClient,
   validateListingClient,
 } from '../features/domain/registry';
 import ServiceLocationPicker from './ServiceLocationPicker';
-import WorldLocationFields from './WorldLocationFields';
 import { categorySelectOptions, findCategory, serviceCategoryId } from '../api/categories';
 import {
   buildOptionPayload,
@@ -45,7 +45,10 @@ import {
   uploadSellerImages,
 } from '../api/seller';
 import { displayPhoneFromE164, toE164 } from '../lib/phone';
+import { findFirstInvalidStep, getServiceSteps, validateStepAt } from '../lib/serviceSteps';
 import useThemedStyles from '../theme/useThemedStyles';
+import ServiceStepTabs from './ServiceStepTabs';
+import { useToast } from './Toast';
 
 const PRICE_TYPES = [
   ['fixed', 'Fixed price'],
@@ -55,20 +58,6 @@ const PRICE_TYPES = [
   ['per-hour', 'Per hour'],
   ['per-item', 'Per item'],
   ['per-package', 'Per package'],
-];
-
-const CALC_FIELDS = [
-  ['people', 'Number of people'],
-  ['quantity', 'Quantity / units'],
-  ['duration', 'Booking duration'],
-  ['fixed', 'Fixed price'],
-];
-
-const DURATION_UNITS = [
-  ['minutes', 'Minutes'],
-  ['hours', 'Hours'],
-  ['days', 'Days'],
-  ['nights', 'Nights'],
 ];
 
 const emptyLocation = {
@@ -168,6 +157,15 @@ function formFromService(service, categories = []) {
     listingAttributes: service?.listingAttributes && Object.keys(service.listingAttributes).length
       ? { ...service.listingAttributes }
       : emptyListingValues(resolveDomain(category || service), resolveSubtype(category || service)),
+    paymentPolicy: {
+      depositPercentage: String(service?.paymentPolicy?.depositPercentage ?? 50),
+      remainingPaymentMethod: service?.paymentPolicy?.remainingPaymentMethod || 'PAY_AT_ARRIVAL',
+    },
+    cancellationPolicy: {
+      type: service?.cancellationPolicy?.type || 'moderate',
+      freeCancellationUntilHours: String(service?.cancellationPolicy?.freeCancellationUntilHours ?? 24),
+      depositRefundable: Boolean(service?.cancellationPolicy?.depositRefundable),
+    },
     rebookSettings: {
       requestDeadlineHours: String(service?.rebookSettings?.requestDeadlineHours ?? 24),
       rebookIdValidityHours: String(service?.rebookSettings?.rebookIdValidityHours ?? 72),
@@ -178,11 +176,12 @@ function formFromService(service, categories = []) {
   };
 }
 
-function Panel({ title, children }) {
+function Panel({ title, hint, children }) {
   const { styles } = useThemedStyles(createStyles);
   return (
     <View style={styles.panel}>
       <Text style={styles.panelTitle}>{title}</Text>
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       {children}
     </View>
   );
@@ -195,15 +194,21 @@ export default function ServiceEditorModal({
   existingOptions = [],
   onClose,
   onSaved,
+  presentation = 'modal',
+  initialStep = 0,
+  showToast: showToastProp,
 }) {
   const { t } = useTranslation();
   const { colors, styles } = useThemedStyles(createStyles);
+  const { showToast: showToastLocal, toastNode } = useToast();
+  const showToast = showToastProp || showToastLocal;
+  const isPage = presentation === 'page';
   const [form, setForm] = useState(() => formFromService(null, categories));
   const [options, setOptions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const [stayStep, setStayStep] = useState(0);
+  const [step, setStep] = useState(0);
 
   const selectedCategory = useMemo(
     () => findCategory(categories, form.categoryId),
@@ -214,7 +219,19 @@ export default function ServiceEditorModal({
   const subtype = resolveSubtype(selectedCategory || service);
   const isStay = domain === 'accommodation';
   const copy = domainCopy(selectedCategory || service);
-  const staySteps = ['Basics', 'Stay details', 'Units', 'Submit'];
+  const steps = useMemo(() => getServiceSteps(copy), [copy.kind]);
+
+  const validationCtx = useMemo(() => ({
+    form,
+    options,
+    domain,
+    subtype,
+    supportsOptions,
+    copy,
+    firstError,
+    validateListingClient,
+    validateInventoryClient,
+  }), [form, options, domain, subtype, supportsOptions, copy]);
 
   useEffect(() => {
     if (!visible) return;
@@ -224,7 +241,7 @@ export default function ServiceEditorModal({
       next.supportsOptions = categories[0].supportsOptions !== false;
     }
     setForm(next);
-    setStayStep(0);
+    setStep(Math.max(0, Math.min(steps.length - 1, Number(initialStep) || 0)));
     setOptions(
       (existingOptions || []).map((opt) => ({
         ...opt,
@@ -239,7 +256,13 @@ export default function ServiceEditorModal({
       }))
     );
     setError('');
-  }, [visible, service, categories, existingOptions]);
+  }, [visible, service, categories, existingOptions, initialStep, steps.length]);
+
+  const raiseStepError = (message, nextStep) => {
+    setError(message);
+    if (typeof nextStep === 'number') setStep(nextStep);
+    showToast(message, 'error');
+  };
 
   const setField = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const setLocation = (next) => setForm((current) => ({ ...current, location: { ...current.location, ...next } }));
@@ -252,16 +275,23 @@ export default function ServiceEditorModal({
       categorySlug: category?.slug || '',
       supportsOptions: category?.supportsOptions !== false,
       listingAttributes: emptyListingValues(resolveDomain(category), resolveSubtype(category)),
+      paymentPolicy: current.paymentPolicy || { depositPercentage: '50', remainingPaymentMethod: 'PAY_AT_ARRIVAL' },
+      cancellationPolicy: current.cancellationPolicy || {
+        type: 'moderate',
+        freeCancellationUntilHours: '24',
+        depositRefundable: false,
+      },
       basePrice: category?.supportsOptions === false ? current.basePrice : '',
     }));
     if (category?.supportsOptions === false) setOptions([]);
+    else if (!options.length) setOptions([emptyOption()]);
   };
 
   const pickImages = async () => {
     const current = form.images.filter(Boolean);
     const remaining = Math.max(0, 5 - current.length);
     if (!remaining) {
-      setError('Maximum 5 images allowed.');
+      raiseStepError('Maximum 5 images allowed.', 0);
       return;
     }
     try {
@@ -296,7 +326,7 @@ export default function ServiceEditorModal({
         };
       });
     } catch (err) {
-      setError(err.message || 'Image upload failed.');
+      raiseStepError(err.message || 'Image upload failed.', 0);
     } finally {
       setUploading(false);
     }
@@ -313,23 +343,6 @@ export default function ServiceEditorModal({
     });
   };
 
-  const validate = () => {
-    if (!form.categoryId) return 'Select a service category.';
-    if (!form.title.trim()) return 'Title is required.';
-    if (!form.location.country || !(form.location.city || form.location.state)) return 'Country and city are required.';
-    if (form.status === 'available' && (!form.location.latitudeRaw && !form.location.latitude)) {
-      return 'Exact map coordinates are required before a service can be available.';
-    }
-    if (!form.contactDetails.phoneE164) return 'Contact phone is required.';
-    const schemaError = firstError(validateListingClient(domain, subtype, form.listingAttributes));
-    if (schemaError) return schemaError;
-    if (!supportsOptions) {
-      const price = Number(form.basePrice);
-      if (!Number.isFinite(price) || price < 0) return 'Base price (RWF) is required for this category.';
-    }
-    return '';
-  };
-
   const syncOptions = async (serviceId, list) => {
     for (const option of list) {
       const body = buildOptionPayload({
@@ -344,53 +357,38 @@ export default function ServiceEditorModal({
     }
   };
 
-  const validateStayStep = (index) => {
-    if (index <= 0) {
-      if (!form.categoryId) return 'Select a service category.';
-      if (!form.title.trim()) return 'Title is required.';
-      if (!form.location.country || !(form.location.city || form.location.state)) return 'Country and city are required.';
-      if (form.status === 'available' && (!form.location.latitudeRaw && !form.location.latitude)) {
-        return 'Drop a pin on the map.';
-      }
-      if (!form.contactDetails.phoneE164) return 'Contact phone is required.';
-    }
-    if (index <= 1) {
-      const schemaError = firstError(validateListingClient(domain, subtype, form.listingAttributes));
-      if (schemaError) return schemaError;
-    }
-    if (index <= 2) {
-      if (!supportsOptions) {
-        const price = Number(form.basePrice);
-        if (!Number.isFinite(price) || price < 0) return 'Base price (RWF) is required for this category.';
-      } else {
-        const named = options.filter((option) => String(option.name || '').trim());
-        if (!named.length) return isStay ? 'Add at least one unit.' : 'Add at least one option.';
-        for (const option of named) {
-          if (!Number.isFinite(Number(option.price)) || Number(option.price) < 0) {
-            return `${option.name || 'Option'} needs a price.`;
-          }
-          const inventoryError = firstError(validateInventoryClient(domain, option.attributes || {}, { subtype }));
-          if (inventoryError) return inventoryError;
-        }
-      }
-    }
-    return '';
-  };
-
-  const goStayNext = () => {
-    const message = validateStayStep(stayStep);
+  const goNext = () => {
+    const message = validateStepAt(step, validationCtx);
     if (message) {
-      setError(message);
+      raiseStepError(message, step);
       return;
     }
     setError('');
-    setStayStep((index) => Math.min(staySteps.length - 1, index + 1));
+    setStep((index) => Math.min(steps.length - 1, index + 1));
+  };
+
+  const goBack = () => {
+    setError('');
+    setStep((index) => Math.max(0, index - 1));
+  };
+
+  const onTabChange = (index) => {
+    // Allow free navigation when editing existing, but validate current before leaving forward on create
+    if (!service && index > step) {
+      const message = validateStepAt(step, validationCtx);
+      if (message) {
+        raiseStepError(message, step);
+        return;
+      }
+    }
+    setError('');
+    setStep(index);
   };
 
   const save = async () => {
-    const validationError = validateStayStep(staySteps.length - 1) || validate();
-    if (validationError) {
-      setError(validationError);
+    const invalid = findFirstInvalidStep(validationCtx);
+    if (invalid.message) {
+      raiseStepError(invalid.message, invalid.stepIndex);
       return;
     }
     setSaving(true);
@@ -406,6 +404,15 @@ export default function ServiceEditorModal({
       const payload = buildServicePayload({
         ...form,
         listingAttributes,
+        paymentPolicy: {
+          depositPercentage: Math.max(20, Math.min(100, Number(form.paymentPolicy?.depositPercentage) || 50)),
+          remainingPaymentMethod: form.paymentPolicy?.remainingPaymentMethod || 'PAY_AT_ARRIVAL',
+        },
+        cancellationPolicy: {
+          type: form.cancellationPolicy?.type || 'moderate',
+          freeCancellationUntilHours: Number(form.cancellationPolicy?.freeCancellationUntilHours) || 24,
+          depositRefundable: Boolean(form.cancellationPolicy?.depositRefundable),
+        },
         categoryId: String(form.categoryId || selectedCategory?._id || selectedCategory?.id || ''),
         contactDetails: {
           phoneE164: form.contactDetails.phoneE164,
@@ -416,7 +423,7 @@ export default function ServiceEditorModal({
         supportsOptions,
       }, { category: selectedCategory });
       if (!payload.categoryId) {
-        setError('Select a service category.');
+        raiseStepError('Select a service category.', 0);
         setSaving(false);
         return;
       }
@@ -435,10 +442,11 @@ export default function ServiceEditorModal({
         await syncOptions(savedId, options);
       }
 
+      showToast(service ? 'Service updated.' : 'Service created.', 'success');
       onSaved?.(savedService);
       onClose?.();
     } catch (err) {
-      setError(err.message || 'Could not save service.');
+      raiseStepError(err.message || 'Could not save service.', step);
     } finally {
       setSaving(false);
     }
@@ -455,7 +463,7 @@ export default function ServiceEditorModal({
         try {
           await deleteSellerServiceOption(serviceId, option._id || option.id);
         } catch (err) {
-          setError(err.message || 'Could not delete option.');
+          raiseStepError(err.message || 'Could not delete option.', 2);
           return;
         }
       }
@@ -463,155 +471,166 @@ export default function ServiceEditorModal({
     setOptions((current) => current.filter((item) => item.localId !== option.localId));
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{service ? (isStay ? 'Edit stay' : 'Edit service') : (isStay ? 'List a stay' : 'Add service')}</Text>
-              <Text style={styles.subtitle}>{isStay ? `Step ${stayStep + 1} of ${staySteps.length}: ${staySteps[stayStep]}` : 'Category listing from your selected type'}</Text>
-            </View>
+  if (!visible && !isPage) return null;
+
+  const editorBody = (
+    <View style={styles.screen}>
+      {!showToastProp ? toastNode : null}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={styles.header}>
+          {isPage ? (
+            <TouchableOpacity style={styles.close} onPress={onClose} activeOpacity={0.84}>
+              <Feather name="arrow-left" size={18} color={colors.text} />
+            </TouchableOpacity>
+          ) : null}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>{service ? (isStay ? 'Edit stay' : 'Edit service') : (isStay ? 'List a stay' : 'Add service')}</Text>
+            <Text style={styles.subtitle}>
+              Step {step + 1} of {steps.length}: {steps[step]?.label}
+            </Text>
+          </View>
+          {!isPage ? (
             <TouchableOpacity style={styles.close} onPress={onClose} activeOpacity={0.84}>
               <Feather name="x" size={18} color={colors.text} />
             </TouchableOpacity>
-          </View>
-
-          {isStay ? (
-            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
-              {staySteps.map((label, index) => (
-                <View key={label} style={{ flex: 1, height: 6, borderRadius: 99, backgroundColor: index <= stayStep ? colors.primary : colors.line || '#dce5f5' }} />
-              ))}
-            </View>
           ) : null}
+        </View>
 
-          {!!error && <Text style={styles.error}>{error}</Text>}
+        <ServiceStepTabs steps={steps} activeIndex={step} onChange={onTabChange} mode="edit" />
 
-          {(!isStay || stayStep === 0) ? (
-            <>
-              <Panel title="Category & basics">
-                <SelectField
-                  label="Category"
-                  value={String(form.categoryId || '')}
-                  options={categorySelectOptions(categories)}
-                  onChange={onCategoryChange}
-                  placeholder="Select category"
-                />
-            {selectedCategory ? (
-              <Text style={styles.hint}>
-                {selectedCategory.name}
-                {selectedCategory.group ? ` · ${selectedCategory.group}` : ''}
-                {selectedCategory.slug ? ` · ${selectedCategory.slug}` : ''}
-              </Text>
-            ) : form.categoryName ? (
-              <Text style={styles.hint}>{form.categoryName}{form.categorySlug ? ` · ${form.categorySlug}` : ''}</Text>
-            ) : null}
-            <TextField label="Title" value={form.title} onChangeText={(text) => setField('title', text)} />
-            <MultilineField label="Description" value={form.description} onChangeText={(text) => setField('description', text)} />
-            <SelectField
-              label="Availability"
-              value={form.status}
-              options={[['available', 'Available'], ['unavailable', 'Not available']]}
-              onChange={(value) => setField('status', value)}
-              searchable={false}
-            />
-          </Panel>
+        {!!error && <Text style={styles.error}>{error}</Text>}
 
-          <Panel title="Location">
-            <WorldLocationFields
-              value={form.location}
-              onChange={(location) => setLocation({
-                ...location,
-                province: location.state || location.province,
-                district: location.city || location.district,
-              })}
-            />
-            <TextField
-              label="Full address"
-              value={form.location.fullAddress || form.location.formattedAddress}
-              onChangeText={(text) => setLocation({ fullAddress: text, formattedAddress: text })}
-            />
-            <ServiceLocationPicker
-              value={form.location}
-              onChange={(next) => setLocation({
-                ...next,
-                latitudeRaw: next.latitudeRaw ?? (next.latitude != null ? String(next.latitude) : form.location.latitudeRaw),
-                longitudeRaw: next.longitudeRaw ?? (next.longitude != null ? String(next.longitude) : form.location.longitudeRaw),
-              })}
-            />
-          </Panel>
+        {step === 0 ? (
+          <>
+            <Panel title="Category & basics">
+              <SelectField
+                label="Category"
+                value={String(form.categoryId || '')}
+                options={categorySelectOptions(categories)}
+                onChange={onCategoryChange}
+                placeholder="Select category"
+              />
+              {selectedCategory ? (
+                <Text style={styles.hint}>
+                  {selectedCategory.name}
+                  {selectedCategory.group ? ` · ${selectedCategory.group}` : ''}
+                  {selectedCategory.slug ? ` · ${selectedCategory.slug}` : ''}
+                </Text>
+              ) : form.categoryName ? (
+                <Text style={styles.hint}>{form.categoryName}{form.categorySlug ? ` · ${form.categorySlug}` : ''}</Text>
+              ) : null}
+              <TextField label="Title" value={form.title} onChangeText={(text) => setField('title', text)} />
+              <MultilineField label="Description" value={form.description} onChangeText={(text) => setField('description', text)} />
+              <SelectField
+                label="Availability"
+                value={form.status}
+                options={[['available', 'Available'], ['unavailable', 'Not available']]}
+                onChange={(value) => setField('status', value)}
+                searchable={false}
+              />
+            </Panel>
 
-          <Panel title="Contact">
-            <PhoneNumberField
-              label="Phone (required)"
-              value={{ phoneE164: form.contactDetails.phoneE164, phoneIso: form.contactDetails.phoneIso, display: form.contactDetails.phoneDisplay }}
-              onChange={(phone) => setForm((current) => ({
-                ...current,
-                contactDetails: {
-                  ...current.contactDetails,
-                  phoneE164: phone.phoneE164,
-                  phoneIso: phone.phoneIso,
-                  phoneDisplay: phone.display,
-                },
-              }))}
-            />
-            <PhoneNumberField
-              label="WhatsApp (optional)"
-              value={{ phoneE164: form.contactDetails.whatsappE164, phoneIso: form.contactDetails.whatsappIso, display: form.contactDetails.whatsappDisplay }}
-              onChange={(phone) => setForm((current) => ({
-                ...current,
-                contactDetails: {
-                  ...current.contactDetails,
-                  whatsappE164: phone.phoneE164,
-                  whatsappIso: phone.phoneIso,
-                  whatsappDisplay: phone.display,
-                },
-              }))}
-            />
-          </Panel>
+            <Panel
+              title="Location"
+              hint="Search a place by typing, then select a result. Country, city, region, address, and map pin fill in automatically."
+            >
+              <ServiceLocationPicker
+                value={form.location}
+                onChange={(next) => setLocation({
+                  ...next,
+                  latitude: next.latitude != null ? String(next.latitude) : '',
+                  longitude: next.longitude != null ? String(next.longitude) : '',
+                  latitudeRaw: next.latitudeRaw ?? (next.latitude != null ? String(next.latitude) : form.location.latitudeRaw),
+                  longitudeRaw: next.longitudeRaw ?? (next.longitude != null ? String(next.longitude) : form.location.longitudeRaw),
+                  province: next.state || next.province || '',
+                  district: next.city || next.district || '',
+                  sector: next.area || next.sector || '',
+                })}
+              />
+            </Panel>
 
-          <Panel title="Photos (max 5)">
-            <TouchableOpacity style={styles.upload} onPress={pickImages} disabled={uploading} activeOpacity={0.84}>
-              {uploading ? <ActivityIndicator color={colors.primary} /> : (
-                <>
-                  <Feather name="upload-cloud" size={18} color={colors.primary} />
-                  <Text style={styles.uploadText}>Upload photos</Text>
-                </>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.hint}>Optional cover = first image. Tap a photo to set as cover.</Text>
-            <View style={styles.imageGrid}>
-              {form.images.filter(Boolean).map((url) => (
-                <TouchableOpacity key={url} style={styles.imageCard} onPress={() => setField('primaryImage', url)} activeOpacity={0.9}>
-                  <Image source={{ uri: url }} style={styles.image} />
-                  {form.primaryImage === url ? <Text style={styles.coverBadge}>Cover</Text> : null}
-                  <TouchableOpacity style={styles.removeImage} onPress={() => removeImage(url)} activeOpacity={0.84}>
-                    <Feather name="x" size={12} color="#fff" />
+            <Panel title="Contact">
+              <PhoneNumberField
+                label="Phone (required)"
+                value={{ phoneE164: form.contactDetails.phoneE164, phoneIso: form.contactDetails.phoneIso, display: form.contactDetails.phoneDisplay }}
+                onChange={(phone) => setForm((current) => ({
+                  ...current,
+                  contactDetails: {
+                    ...current.contactDetails,
+                    phoneE164: phone.phoneE164,
+                    phoneIso: phone.phoneIso,
+                    phoneDisplay: phone.display,
+                  },
+                }))}
+              />
+              <PhoneNumberField
+                label="WhatsApp (optional)"
+                value={{ phoneE164: form.contactDetails.whatsappE164, phoneIso: form.contactDetails.whatsappIso, display: form.contactDetails.whatsappDisplay }}
+                onChange={(phone) => setForm((current) => ({
+                  ...current,
+                  contactDetails: {
+                    ...current.contactDetails,
+                    whatsappE164: phone.phoneE164,
+                    whatsappIso: phone.phoneIso,
+                    whatsappDisplay: phone.display,
+                  },
+                }))}
+              />
+            </Panel>
+
+            <Panel title="Photos (max 5)">
+              <TouchableOpacity style={styles.upload} onPress={pickImages} disabled={uploading} activeOpacity={0.84}>
+                {uploading ? <ActivityIndicator color={colors.primary} /> : (
+                  <>
+                    <Feather name="upload-cloud" size={18} color={colors.primary} />
+                    <Text style={styles.uploadText}>Upload photos</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.hint}>Optional cover = first image. Tap a photo to set as cover.</Text>
+              <View style={styles.imageGrid}>
+                {form.images.filter(Boolean).map((url) => (
+                  <TouchableOpacity key={url} style={styles.imageCard} onPress={() => setField('primaryImage', url)} activeOpacity={0.9}>
+                    <Image source={{ uri: url }} style={styles.image} />
+                    {form.primaryImage === url ? <Text style={styles.coverBadge}>Cover</Text> : null}
+                    <TouchableOpacity style={styles.removeImage} onPress={() => removeImage(url)} activeOpacity={0.84}>
+                      <Feather name="x" size={12} color="#fff" />
+                    </TouchableOpacity>
                   </TouchableOpacity>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Panel>
-            </>
-          ) : null}
+                ))}
+              </View>
+            </Panel>
+          </>
+        ) : null}
 
-          {(!isStay || stayStep === 1) ? (
-          <Panel title={isStay ? 'House rules, availability & invoicing' : 'Category details'}>
+        {step === 1 ? (
+          <Panel
+            title={isStay ? 'House rules, availability & invoicing' : copy.kind === 'rental' ? 'Rental rules & locations' : 'Category details'}
+            hint={copy.kind === 'rental' ? 'These rules apply to the whole listing (class, ages, pickup/return, permits).' : undefined}
+          >
             <ListingFields
               category={selectedCategory || service}
               values={form.listingAttributes}
               onChange={(next) => setForm((current) => ({ ...current, listingAttributes: next }))}
             />
           </Panel>
-          ) : null}
+        ) : null}
 
-          {(!isStay || stayStep === 2) ? (
+        {step === 2 ? (
           !supportsOptions ? (
             <Panel title="Pricing">
               <NumberField label="Base price (RWF)" value={String(form.basePrice)} onChangeText={(text) => setField('basePrice', text)} />
             </Panel>
           ) : (
-            <Panel title={isStay ? 'Rooms & units' : copy.kind === 'rental' ? 'Vehicles' : 'Options'}>
+            <Panel
+              title={isStay ? 'Rooms & units' : copy.kind === 'rental' ? 'Vehicles / bike types' : 'Options & prices'}
+              hint={copy.kind === 'rental'
+                ? 'Add each vehicle or bike type you offer, with its own price and details. This is separate from the rental rules above.'
+                : 'Add priced options customers can choose from.'}
+            >
+              {options.length ? null : (
+                <Text style={styles.hint}>Nothing here yet. Tap add below to create one.</Text>
+              )}
               {options.map((option, index) => (
                 <View key={option.localId} style={styles.optionCard}>
                   <View style={styles.optionHeader}>
@@ -621,10 +640,8 @@ export default function ServiceEditorModal({
                     </TouchableOpacity>
                   </View>
                   <TextField label="Name" value={option.name} onChangeText={(text) => updateOption(option.localId, 'name', text)} />
-                  <View style={styles.row}>
-                    <NumberField label="Price (RWF)" value={String(option.price)} onChangeText={(text) => updateOption(option.localId, 'price', text)} />
-                    <SelectField label="Price type" value={option.priceType} options={PRICE_TYPES} onChange={(value) => updateOption(option.localId, 'priceType', value)} searchable={false} />
-                  </View>
+                  <NumberField label="Price (RWF)" value={String(option.price)} onChangeText={(text) => updateOption(option.localId, 'price', text)} />
+                  <SelectField label="Price type" value={option.priceType} options={PRICE_TYPES} onChange={(value) => updateOption(option.localId, 'priceType', value)} searchable={false} />
                   <NumberField label={copy.capacityLabel || 'Capacity'} value={String(option.capacity)} onChangeText={(text) => updateOption(option.localId, 'capacity', text)} />
                   <InventoryFields
                     category={selectedCategory || service}
@@ -638,11 +655,53 @@ export default function ServiceEditorModal({
               </TouchableOpacity>
             </Panel>
           )
-          ) : null}
+        ) : null}
 
-          {(!isStay || stayStep === 3) ? (
-          <Panel title="Rebook rules">
-            <View style={styles.row}>
+        {step === 3 ? (
+          <>
+            <Panel
+              title="Customer payment"
+              hint="Choose how much customers pay online when booking. Minimum 20%."
+            >
+              <NumberField
+                label="Online deposit %"
+                value={String(form.paymentPolicy?.depositPercentage ?? 50)}
+                onChangeText={(text) => setField('paymentPolicy', {
+                  ...(form.paymentPolicy || {}),
+                  depositPercentage: text.replace(/[^0-9]/g, ''),
+                })}
+              />
+              <Text style={styles.hint}>Minimum 20%, maximum 100%. Default is 50% of the full booking price.</Text>
+              <SelectField
+                label="Remaining balance"
+                value={form.paymentPolicy?.remainingPaymentMethod || 'PAY_AT_ARRIVAL'}
+                options={remainingPaymentOptions(selectedCategory || service)}
+                onChange={(value) => setField('paymentPolicy', {
+                  ...(form.paymentPolicy || {}),
+                  remainingPaymentMethod: value,
+                })}
+                searchable={false}
+              />
+              <SelectField
+                label="Cancellation policy"
+                value={form.cancellationPolicy?.type || 'moderate'}
+                options={[['flexible', 'Flexible'], ['moderate', 'Moderate'], ['strict', 'Strict']]}
+                onChange={(value) => setField('cancellationPolicy', {
+                  ...(form.cancellationPolicy || {}),
+                  type: value,
+                })}
+                searchable={false}
+              />
+              <NumberField
+                label="Free cancellation until (hours before start)"
+                value={String(form.cancellationPolicy?.freeCancellationUntilHours ?? 24)}
+                onChangeText={(text) => setField('cancellationPolicy', {
+                  ...(form.cancellationPolicy || {}),
+                  freeCancellationUntilHours: text,
+                })}
+              />
+            </Panel>
+            <Panel title="Rebook rules" hint="How long customers have to request a rebook and how long a rebook ID stays valid.">
               <NumberField
                 label="Request deadline (hours)"
                 value={String(form.rebookSettings.requestDeadlineHours)}
@@ -653,38 +712,38 @@ export default function ServiceEditorModal({
                 value={String(form.rebookSettings.rebookIdValidityHours)}
                 onChangeText={(text) => setField('rebookSettings', { ...form.rebookSettings, rebookIdValidityHours: text })}
               />
-            </View>
-            <Text style={styles.hint}>50% deposit. 10% platform commission.</Text>
-          </Panel>
-          ) : null}
+            </Panel>
+          </>
+        ) : null}
 
-          {isStay ? (
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-              <TouchableOpacity
-                style={[styles.outline, { flex: 1, opacity: stayStep === 0 ? 0.4 : 1 }]}
-                disabled={stayStep === 0}
-                onPress={() => setStayStep((index) => Math.max(0, index - 1))}
-                activeOpacity={0.84}
-              >
-                <Text style={styles.outlineText}>Back</Text>
-              </TouchableOpacity>
-              {stayStep < staySteps.length - 1 ? (
-                <TouchableOpacity style={[styles.save, { flex: 1 }]} onPress={goStayNext} activeOpacity={0.86}>
-                  <Text style={styles.saveText}>Continue</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity style={[styles.save, { flex: 1 }, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
-                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Submit stay</Text>}
-                </TouchableOpacity>
-              )}
-            </View>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.outline, { flex: 1, opacity: step === 0 ? 0.4 : 1 }]}
+            disabled={step === 0}
+            onPress={goBack}
+            activeOpacity={0.84}
+          >
+            <Text style={styles.outlineText}>Back</Text>
+          </TouchableOpacity>
+          {step < steps.length - 1 ? (
+            <TouchableOpacity style={[styles.save, { flex: 1 }]} onPress={goNext} activeOpacity={0.86}>
+              <Text style={styles.saveText}>Continue</Text>
+            </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={[styles.save, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{t('common.save')}</Text>}
+            <TouchableOpacity style={[styles.save, { flex: 1 }, saving && { opacity: 0.7 }]} onPress={save} disabled={saving} activeOpacity={0.86}>
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{t('actions.save')}</Text>}
             </TouchableOpacity>
           )}
-        </ScrollView>
-      </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  if (isPage) return editorBody;
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      {editorBody}
     </Modal>
   );
 }

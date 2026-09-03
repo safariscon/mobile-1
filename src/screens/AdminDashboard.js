@@ -25,7 +25,7 @@ import BookingDetailCards from '../components/BookingDetailCards';
 import { extractBookingLookup } from '../lib/bookingVerification';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import PolicyLinks from '../components/PolicyLinks';
-import ServiceDetailsView from '../components/ServiceDetailsView';
+import AdminServiceReviewScreen from './AdminServiceReviewScreen';
 import {
   deleteAdminServiceCategory,
   fetchAdminServiceCategories,
@@ -155,6 +155,8 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
+  const [serviceReviewLoading, setServiceReviewLoading] = useState(false);
+  const [approvalBusyAction, setApprovalBusyAction] = useState(null);
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [decision, setDecision] = useState({ totalPrice: '', commissionPercentage: '10', paymentReason: t('admin.defaultPaymentReason') });
   const [approvalForm, setApprovalForm] = useState({
@@ -550,6 +552,7 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
 
   const openServiceReview = (service) => {
     setSelectedService(normalizeServiceDetail(service));
+    setServiceReviewLoading(true);
     setApprovalForm({
       cancelWindowHours: String(service?.cancelWindowHours || service?.cancellationPolicy?.windowHours || 6),
       cancelPenaltyPercent: String(service?.cancelPenaltyPercent ?? service?.cancellationPolicy?.penaltyPercent ?? 20),
@@ -568,11 +571,12 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
         setApprovalForm((current) => ({
           ...current,
           cancelWindowHours: String(details.cancelWindowHours || current.cancelWindowHours),
-          cancelPenaltyPercent: String(details.cancelPenaltyPercent || current.cancelPenaltyPercent),
-          platformCommissionPercent: String(details.platformCommissionPercent || current.platformCommissionPercent),
+          cancelPenaltyPercent: String(details.cancelPenaltyPercent ?? current.cancelPenaltyPercent),
+          platformCommissionPercent: String(details.platformCommissionPercent ?? current.platformCommissionPercent),
+          notes: details.agreementTerms?.notes || current.notes,
         }));
       }
-    });
+    }).finally(() => setServiceReviewLoading(false));
   };
 
   const saveAnnouncement = () => runAction(
@@ -752,9 +756,9 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
     const canDelete = approved || rejected;
     const id = business._id || business.id;
     openOverflow(business.businessName || business.name || 'Service', [
-      { key: 'view', icon: 'eye', label: t('actions.view'), onPress: () => setSelectedBusiness(business) },
-      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => reviewBusiness(id, 'approved', { confirm: true }) } : null,
-      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => reviewBusiness(id, 'rejected', { confirm: true }) } : null,
+      { key: 'view', icon: 'eye', label: t('actions.view'), onPress: () => openServiceReview(business) },
+      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => openServiceReview(business) } : null,
+      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => openServiceReview(business) } : null,
       business.imageReviewStatus === 'pending_image_review'
         ? { key: 'approve-images', icon: 'image', label: 'Approve images', onPress: () => reviewBusinessImages(id, 'approve') }
         : null,
@@ -777,13 +781,65 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
     const rejected = status === 'rejected';
     openOverflow(service.title || service.name || t('admin.unnamedUser'), [
       { key: 'review', icon: 'eye', label: t('admin.reviewService'), onPress: () => openServiceReview(service) },
-      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => reviewService(service._id || service.id, 'approved', { confirm: true }) } : null,
-      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => reviewService(service._id || service.id, 'rejected', { confirm: true }) } : null,
+      !approved ? { key: 'approve', icon: 'check-circle', label: t('actions.approve'), onPress: () => openServiceReview(service) } : null,
+      !rejected ? { key: 'reject', icon: 'x-circle', label: t('actions.reject'), onPress: () => openServiceReview(service) } : null,
     ]);
   };
   const pendingCount = businesses.filter((item) => !isDraftListing(item) && reviewStatusOf(item) === 'pending').length;
   const currentAnnouncement = announcementForm.items?.[0] || { text: '', linkLabel: '', linkUrl: '' };
   const activePage = ADMIN_PAGE_META[activeTab] || ADMIN_PAGE_META.businesses;
+
+  if (selectedService) {
+    return (
+      <View style={styles.container}>
+        <AdminServiceReviewScreen
+          service={selectedService}
+          loading={serviceReviewLoading}
+          busyAction={approvalBusyAction}
+          approvalForm={approvalForm}
+          setApprovalForm={setApprovalForm}
+          onBack={() => {
+            if (approvalBusyAction) return;
+            setSelectedService(null);
+          }}
+          onApprove={async () => {
+            const serviceId = selectedService?._id || selectedService?.id;
+            setApprovalBusyAction('approve');
+            try {
+              const response = await reviewService(serviceId, 'approved');
+              if (response) setSelectedService(null);
+            } finally {
+              setApprovalBusyAction(null);
+            }
+          }}
+          onReject={() => {
+            const serviceId = selectedService?._id || selectedService?.id;
+            if (!String(approvalForm.reason || '').trim()) {
+              showResult(t('common.error'), 'Add a rejection reason before rejecting.', 'error');
+              return;
+            }
+            askConfirm({
+              title: 'Reject this service?',
+              message: 'The service provider will be notified and the listing will be rejected.',
+              confirmLabel: t('actions.reject'),
+              destructive: true,
+              onConfirm: async () => {
+                closeDialog();
+                setApprovalBusyAction('reject');
+                try {
+                  const response = await reviewService(serviceId, 'rejected');
+                  if (response) setSelectedService(null);
+                } finally {
+                  setApprovalBusyAction(null);
+                }
+              },
+            });
+          }}
+        />
+        {dialogNode}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -824,7 +880,7 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
               const status = reviewStatusOf(business);
               return (
                 <View key={business._id || business.id} style={styles.reviewCard}>
-                  <TouchableOpacity onPress={() => setSelectedBusiness(business)} activeOpacity={0.88}>
+                  <TouchableOpacity onPress={() => openServiceReview(business)} activeOpacity={0.88}>
                     <View style={styles.reviewTitleRow}>
                       <Text style={styles.reviewTitle}>{business.businessName || business.name || 'Untitled service'}</Text>
                       <View style={[styles.statusPill, styles[`statusPill${statusTone(status)}`]]}>
@@ -1188,64 +1244,6 @@ export default function AdminDashboard({ tab, hideChrome = false, section = 'all
       />
 
       <BusinessModal business={selectedBusiness} onClose={() => setSelectedBusiness(null)} />
-      <ServiceDetailsView
-        visible={Boolean(selectedService)}
-        service={selectedService}
-        loading={saving}
-        showProvider
-        showPrivateFields
-        title="Service review"
-        onClose={() => setSelectedService(null)}
-        footer={(
-          <View style={{ gap: 10 }}>
-            <Text style={styles.settingsGroupTitle}>Agreement terms (required to approve)</Text>
-            <Field
-              label="Cancel window (hours)"
-              value={String(approvalForm.cancelWindowHours)}
-              onChangeText={(cancelWindowHours) => setApprovalForm((current) => ({ ...current, cancelWindowHours }))}
-              keyboardType="number-pad"
-            />
-            <Field
-              label="Cancel penalty %"
-              value={String(approvalForm.cancelPenaltyPercent)}
-              onChangeText={(cancelPenaltyPercent) => setApprovalForm((current) => ({ ...current, cancelPenaltyPercent }))}
-              keyboardType="number-pad"
-            />
-            <Field
-              label="Platform commission %"
-              value={String(approvalForm.platformCommissionPercent)}
-              onChangeText={(platformCommissionPercent) => setApprovalForm((current) => ({ ...current, platformCommissionPercent }))}
-              keyboardType="number-pad"
-            />
-            <Field
-              label="Notes"
-              value={approvalForm.notes}
-              onChangeText={(notes) => setApprovalForm((current) => ({ ...current, notes }))}
-            />
-            <Field
-              label="Reject reason"
-              value={approvalForm.reason}
-              onChangeText={(reason) => setApprovalForm((current) => ({ ...current, reason }))}
-            />
-            <View style={styles.actionRow}>
-              <SmallButton label={t('actions.approve')} tone="success" onPress={() => reviewService(selectedService?._id || selectedService?.id, 'approved').then((response) => { if (response) setSelectedService(null); })} />
-              <SmallButton label={t('actions.reject')} tone="danger" onPress={() => {
-                const serviceId = selectedService?._id || selectedService?.id;
-                askConfirm({
-                  title: 'Reject this service?',
-                  message: 'The service provider will be notified and the listing will be rejected.',
-                  confirmLabel: t('actions.reject'),
-                  destructive: true,
-                  onConfirm: () => {
-                    closeDialog();
-                    reviewService(serviceId, 'rejected').then((response) => { if (response) setSelectedService(null); });
-                  },
-                });
-              }} />
-            </View>
-          </View>
-        )}
-      />
       <BookingQrScanner
         visible={scannerOpen}
         title={t('admin.verifyBooking')}

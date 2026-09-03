@@ -1,5 +1,6 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
+import { useTranslation } from 'react-i18next';
 import { POLICY_PAGES } from '../lib/policies';
 import { usePolicy } from '../context/PolicyContext';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -12,6 +13,7 @@ const POLICY_ICONS = {
 };
 
 export default function PolicyLinks({ compact = false, onOpen }) {
+  const { t } = useTranslation();
   const themed = useThemedStyles(createStyles);
   const styles = themed.styles;
   const colors = themed.colors;
@@ -24,7 +26,7 @@ export default function PolicyLinks({ compact = false, onOpen }) {
           <View style={styles.iconWrap}>
             <Feather name={POLICY_ICONS[page.key] || 'file-text'} size={16} color={colors.primary} />
           </View>
-          <Text style={styles.label}>{page.label}</Text>
+          <Text style={styles.label}>{t(page.labelKey)}</Text>
           <Feather name="chevron-right" size={16} color={colors.muted} />
         </TouchableOpacity>
       ))}

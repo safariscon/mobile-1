@@ -14,6 +14,25 @@ import { resolveRentalLocations } from '../../lib/rentalLocations';
 import LicencePhotoField from './LicencePhotoField';
 import { ChipsField, DateField, DateTimeField, MultilineField, NumberField, SelectField, TextField, TimeField } from '../../components/FormFields';
 
+const VEHICLE_CLASSES = [
+  ['Economy', 'Economy'],
+  ['Compact', 'Compact'],
+  ['SUV', 'SUV'],
+  ['Van', 'Van'],
+  ['Luxury', 'Luxury'],
+];
+
+const TRANSMISSIONS = [
+  ['Automatic', 'Automatic'],
+  ['Manual', 'Manual'],
+];
+
+const FUEL_POLICIES = [
+  ['Full-to-full', 'Full-to-full'],
+  ['Same-to-same', 'Same-to-same'],
+  ['Prepaid', 'Prepaid'],
+];
+
 const addDay = (iso) => {
   const date = new Date(`${iso}T12:00:00Z`);
   if (Number.isNaN(date.getTime())) return iso;
@@ -21,11 +40,40 @@ const addDay = (iso) => {
   return date.toISOString().slice(0, 10);
 };
 
-function BoolField({ label, value, onChange }) {
+function SectionLabel({ children }) {
   return (
-    <TouchableOpacity onPress={() => onChange(!value)} activeOpacity={0.84} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-      <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: value ? '#0754d7' : '#94a3b8', backgroundColor: value ? '#0754d7' : 'transparent' }} />
-      <Text style={{ fontSize: 14, fontWeight: '600' }}>{label}</Text>
+    <Text style={{
+      color: '#334155',
+      fontSize: 12,
+      fontWeight: '900',
+      letterSpacing: 0.4,
+      marginBottom: 8,
+      marginTop: 6,
+      textTransform: 'uppercase',
+    }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function BoolField({ label, value, onChange, style }) {
+  return (
+    <TouchableOpacity
+      onPress={() => onChange(!value)}
+      activeOpacity={0.84}
+      style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12, marginTop: 4 }, style]}
+    >
+      <View style={{
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: value ? '#0754d7' : '#94a3b8',
+        backgroundColor: value ? '#0754d7' : 'transparent',
+      }}
+      />
+      <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', lineHeight: 20 }}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -37,7 +85,8 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
   const set = (key, value) => onChange({ ...values, [key]: value });
 
   const permitFields = (vehicleSubtype) => (
-    <>
+    <View style={{ marginTop: 8 }}>
+      <SectionLabel>{t('domain.transport.licence.allowedClasses')}</SectionLabel>
       <ChipsField
         label={t('domain.transport.licence.allowedClasses')}
         multiple
@@ -47,6 +96,7 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
         help={t('domain.transport.licence.allowedClassesHelp')}
         onChange={(value) => set('allowedLicenceClasses', value)}
       />
+      <SectionLabel>Pickup & return</SectionLabel>
       <TextField
         label={t('domain.transport.pickupLocation')}
         value={values.pickupLocation}
@@ -65,8 +115,9 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
         label={t('domain.transport.licence.requireUpload')}
         value={values.requireLicenceUpload !== false}
         onChange={(value) => set('requireLicenceUpload', value)}
+        style={{ marginTop: 14, marginBottom: 4, paddingVertical: 6 }}
       />
-    </>
+    </View>
   );
 
   if (domain === 'accommodation') {
@@ -77,9 +128,9 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
         <TimeField label="Check-in from" value={values.checkInFrom || values.checkInTime} onChange={(value) => onChange({ ...values, checkInFrom: value, checkInTime: value })} />
         <TimeField label="Check-in until" value={values.checkInUntil} onChange={(value) => set('checkInUntil', value)} />
         <TimeField label="Check-out until" value={values.checkOutUntil || values.checkOutTime} onChange={(value) => onChange({ ...values, checkOutUntil: value, checkOutTime: value })} />
-        <SelectField label="Star rating" value={values.starRating || 'unrated'} options={['unrated', '1-star', '2-star', '3-star', '4-star', '5-star']} onChange={(value) => set('starRating', value)} searchable={false} />
-        <SelectField label="Allow children" value={values.allowsChildren || 'yes'} options={['yes', 'no']} onChange={(value) => set('allowsChildren', value)} searchable={false} />
-        <SelectField label="Allow pets" value={values.allowsPets || 'no'} options={['yes', 'upon_request', 'no']} onChange={(value) => set('allowsPets', value)} searchable={false} />
+        <SelectField label="Star rating" value={values.starRating || 'unrated'} options={[['unrated', 'Unrated'], ['1-star', '1 star'], ['2-star', '2 star'], ['3-star', '3 star'], ['4-star', '4 star'], ['5-star', '5 star']]} onChange={(value) => set('starRating', value)} searchable={false} />
+        <SelectField label="Allow children" value={values.allowsChildren || 'yes'} options={[['yes', 'Yes'], ['no', 'No']]} onChange={(value) => set('allowsChildren', value)} searchable={false} />
+        <SelectField label="Allow pets" value={values.allowsPets || 'no'} options={[['yes', 'Yes'], ['upon_request', 'Upon request'], ['no', 'No']]} onChange={(value) => set('allowsPets', value)} searchable={false} />
         <BoolField label="Children stay for free" value={Boolean(values.childrenStayFree)} onChange={(value) => set('childrenStayFree', value)} />
         <MultilineField label="Property amenities" value={Array.isArray(values.amenities) ? values.amenities.join(', ') : (values.amenities || '')} onChangeText={(value) => set('amenities', value)} />
         <SelectField label="First check-in" value={values.firstCheckInMode || 'asap'} options={[['asap', 'As soon as possible'], ['date', 'Specific date']]} onChange={(value) => set('firstCheckInMode', value)} searchable={false} />
@@ -97,13 +148,25 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
   if (domain === 'transport' && subtype === 'car-rental') {
     return (
       <View>
-        <SelectField label="Vehicle class" value={values.vehicleClass} options={['Economy', 'Compact', 'SUV', 'Van', 'Luxury']} onChange={(value) => set('vehicleClass', value)} searchable={false} />
-        <SelectField label="Transmission" value={values.transmission} options={['Automatic', 'Manual']} onChange={(value) => set('transmission', value)} searchable={false} />
+        <SectionLabel>Vehicle rules</SectionLabel>
+        <SelectField label="Vehicle class" value={values.vehicleClass} options={VEHICLE_CLASSES} onChange={(value) => set('vehicleClass', value)} searchable={false} />
+        <SelectField label="Transmission" value={values.transmission} options={TRANSMISSIONS} onChange={(value) => set('transmission', value)} searchable={false} />
         <SelectField label="Fuel type" value={values.fuelType || 'Petrol'} options={CAR_FUEL_TYPES} onChange={(value) => set('fuelType', value)} searchable={false} />
-        <SelectField label="Fuel policy" value={values.fuelPolicy} options={['Full-to-full', 'Same-to-same', 'Prepaid']} onChange={(value) => set('fuelPolicy', value)} searchable={false} />
+        <SelectField label="Fuel policy" value={values.fuelPolicy || 'Full-to-full'} options={FUEL_POLICIES} onChange={(value) => set('fuelPolicy', value)} searchable={false} />
         <NumberField label="Minimum driver age" value={String(values.minimumDriverAge ?? '')} onChangeText={(value) => set('minimumDriverAge', value)} />
-        <BoolField label="With driver" value={Boolean(values.withDriver)} onChange={(value) => set('withDriver', value)} />
-        <BoolField label="Insurance included" value={Boolean(values.insuranceIncluded)} onChange={(value) => set('insuranceIncluded', value)} />
+        <BoolField
+          label="With driver"
+          value={Boolean(values.withDriver)}
+          onChange={(value) => set('withDriver', value)}
+          style={{ marginTop: 14, paddingVertical: 6 }}
+        />
+        <BoolField
+          label="Insurance included"
+          value={Boolean(values.insuranceIncluded)}
+          onChange={(value) => set('insuranceIncluded', value)}
+          style={{ marginTop: 4, paddingVertical: 6 }}
+        />
+        <SectionLabel>Rental schedule</SectionLabel>
         <TimeField label="Pickup from" value={values.pickupTime || '08:00'} onChange={(value) => set('pickupTime', value)} />
         <TimeField label="Return by" value={values.returnTime || '18:00'} onChange={(value) => set('returnTime', value)} />
         <NumberField label="Minimum rental (days)" value={String(values.minRentalDays ?? 1)} onChangeText={(value) => set('minRentalDays', value)} />
@@ -119,10 +182,12 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
   if (domain === 'transport' && subtype === 'motorbike') {
     return (
       <View>
+        <SectionLabel>Bike rules</SectionLabel>
         <BoolField
           label={t('domain.transport.moto.helmetIncluded')}
           value={values.helmetIncluded !== false}
           onChange={(value) => set('helmetIncluded', value)}
+          style={{ marginTop: 4, paddingVertical: 6 }}
         />
         <NumberField
           label={t('domain.transport.moto.minimumRiderAge')}
@@ -130,6 +195,7 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
           error={errors.minimumDriverAge}
           onChangeText={(value) => set('minimumDriverAge', value)}
         />
+        <SectionLabel>Rental schedule</SectionLabel>
         <TimeField label={t('domain.transport.pickupFrom')} value={values.pickupTime || '08:00'} onChange={(value) => set('pickupTime', value)} />
         <TimeField label={t('domain.transport.returnBy')} value={values.returnTime || '18:00'} onChange={(value) => set('returnTime', value)} />
         <NumberField
@@ -153,7 +219,7 @@ export function ListingFields({ category, values = {}, onChange, errors = {} }) 
     return (
       <View>
         <TextField label="Duration" value={values.duration} onChangeText={(value) => set('duration', value)} />
-        <SelectField label="Difficulty" value={values.difficulty} options={['Easy', 'Moderate', 'Challenging']} onChange={(value) => set('difficulty', value)} searchable={false} />
+        <SelectField label="Difficulty" value={values.difficulty} options={[['Easy', 'Easy'], ['Moderate', 'Moderate'], ['Challenging', 'Challenging']]} onChange={(value) => set('difficulty', value)} searchable={false} />
         <TextField label="Meeting point" value={values.meetingPoint} onChangeText={(value) => set('meetingPoint', value)} />
         <MultilineField label="What's included" value={values.included} onChangeText={(value) => set('included', value)} />
         <MultilineField label="What's excluded" value={values.excluded} onChangeText={(value) => set('excluded', value)} />
@@ -203,6 +269,7 @@ export function InventoryFields({ category, values = {}, onChange, errors = {} }
   if (domain === 'transport' && subtype === 'motorbike') {
     return (
       <View>
+        <SectionLabel>This bike type</SectionLabel>
         <TextField label={t('domain.transport.moto.make')} value={values.make} placeholder={t('domain.transport.moto.makePlaceholder')} onChangeText={(value) => set('make', value)} />
         <TextField label={t('domain.transport.moto.model')} value={values.model} placeholder={t('domain.transport.moto.modelPlaceholder')} onChangeText={(value) => set('model', value)} />
         <TextField
@@ -246,16 +313,17 @@ export function InventoryFields({ category, values = {}, onChange, errors = {} }
   if (domain === 'transport') {
     return (
       <View>
+        <SectionLabel>This vehicle type</SectionLabel>
         <TextField label={t('domain.transport.car.make')} value={values.make} onChangeText={(value) => set('make', value)} />
         <TextField label={t('domain.transport.car.model')} value={values.model} onChangeText={(value) => set('model', value)} />
         <NumberField label={t('domain.transport.car.seats')} value={String(values.seats ?? '')} onChangeText={(value) => set('seats', value)} />
-        <BoolField label={t('domain.transport.car.ac')} value={Boolean(values.ac)} onChange={(value) => set('ac', value)} />
+        <BoolField label={t('domain.transport.car.ac')} value={Boolean(values.ac)} onChange={(value) => set('ac', value)} style={{ marginTop: 10, paddingVertical: 6 }} />
         <NumberField label={copy.capacityLabel} value={String(values.quantity ?? 1)} error={errors.quantity} onChangeText={(value) => set('quantity', value)} />
       </View>
     );
   }
   if (domain === 'experiences') {
-    return <SelectField label="Package type" value={values.packageType} options={['Adult', 'Child', 'Family']} onChange={(value) => set('packageType', value)} searchable={false} />;
+    return <SelectField label="Package type" value={values.packageType} options={[['Adult', 'Adult'], ['Child', 'Child'], ['Family', 'Family']]} onChange={(value) => set('packageType', value)} searchable={false} />;
   }
   if (domain === 'venues') {
     return <TextField label="Package name" value={values.packageName} onChangeText={(value) => set('packageName', value)} />;

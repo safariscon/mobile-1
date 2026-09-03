@@ -282,7 +282,7 @@
       "book": "Book now",
       "bookText": "Send your request",
       "pay": "Pay safely",
-      "payText": "Pay in full",
+      "payText": "Pay online deposit (min 20%)",
       "unlock": "Get details",
       "unlockText": "See provider contacts",
       "enjoy": "Enjoy service",
@@ -400,7 +400,7 @@
     "cash": "Cash",
     "specialRequest": "Special request",
     "specialPlaceholder": "",
-    "terms": "I agree to the Terms and Payments & refunds. Provider details unlock only after you pay the full amount. Money is held until the cancel window ends."
+    "terms": "I agree to the Terms and Payments & refunds. Provider details unlock after you pay the online deposit. Money is held until the cancel window ends."
   },
   "customerBookings": {
     "pendingQuote": "Pending quote",
@@ -703,7 +703,7 @@
     "bookingFound": "Booking found.",
     "defaultRuleAccurate": "Provide accurate booking information.",
     "defaultRuleBalance": "The remaining balance is paid according to the provider agreement.",
-    "defaultPaymentReason": "Pay in full. Money is held until the cancel window ends.",
+    "defaultPaymentReason": "Pay the online deposit shown. Money is held until the cancel window ends.",
     "defaultRejectReason": "Booking request rejected by admin.",
     "commissionCollected": "Commission marked collected.",
     "storageRefreshed": "Storage refreshed.",
@@ -816,6 +816,11 @@
     "from": "From",
     "night": "night",
     "viewDetails": "View details"
+  },
+  "paymentSheet": {
+    "title": "Pay online deposit",
+    "help": "Pay the deposit shown below. Money is held until the cancel window ends.",
+    "exactAmountNote": "Your phone will be asked to approve exactly this amount."
   },
   "mockServices": {
     "hotelCategory": "Hotel & accommodation",

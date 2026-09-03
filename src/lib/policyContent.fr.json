@@ -1,0 +1,148 @@
+{
+  "policy": {
+    "welcomeEyebrow": "Bienvenue sur SafarisCon",
+    "readBeforeContinue": "Lisez chaque section ci-dessous avant de continuer.",
+    "tabs": {
+      "howItWorks": "Comment ça marche",
+      "howItWorksShort": "Comment ça marche",
+      "terms": "Conditions d'utilisation",
+      "termsShort": "Conditions",
+      "privacy": "Politique de confidentialité",
+      "privacyShort": "Confidentialité",
+      "payments": "Paiements et remboursements",
+      "paymentsShort": "Paiements"
+    },
+    "howTitle": "Comment fonctionne SafarisCon",
+    "howLead": "SafarisCon est une place de marché de réservation. Vous payez dans l'application. Nous conservons l'argent, protégeons les coordonnées du prestataire jusqu'au paiement, puis seulement vous recevez ce dont vous avez besoin pour voyager.",
+    "howStep1Title": "Parcourir en toute sécurité",
+    "howStep1Body": "Les offres publiques masquent le vrai nom, le téléphone et l'adresse exacte du prestataire. Vous voyez la catégorie, le quartier, les photos et le prix.",
+    "howStep2Title": "Créer un compte",
+    "howStep2Body": "E-mail et mot de passe, puis nous vérifions votre e-mail avec un code à usage unique. La connexion se fait avec le mot de passe plus un code que nous vous envoyons par e-mail.",
+    "howStep3Title": "Demander une réservation",
+    "howStep3Body": "Certaines offres se confirment automatiquement ; d'autres attendent le prestataire. Le prestataire fixe ce que vous payez en ligne maintenant — au minimum 20 % du prix de l'offre. Le reste peut être dû à l'arrivée ou au départ, ou vous payez le prix intégral en ligne.",
+    "howStep4Title": "Payer par Mobile Money ou carte",
+    "howStep4Body": "Payez votre acompte en ligne par Mobile Money ou carte. Le paiement va vers le portefeuille SafarisCon, pas directement au prestataire. Lorsque le paiement réussit, les coordonnées du prestataire et votre code de réservation se déverrouillent.",
+    "howStep5Title": "Annuler uniquement tant que le délai est ouvert",
+    "howStep5Body": "Par défaut : jusqu'à 6 heures avant le service, vous pouvez annuler et récupérer 80 % ; 20 % constituent des frais d'annulation. L'offre peut fixer d'autres délais et pourcentages. Après l'échéance, Annuler disparaît et la réservation reste valable.",
+    "howStep6Title": "Présentez votre code sur place",
+    "howStep6Body": "Le prestataire vérifie votre code. Payez le solde restant sur place seulement si l'offre indiquait un solde après votre acompte en ligne.",
+    "defaultCancelNote": "Chaque offre indique son propre délai d'annulation et ses frais. Les valeurs par défaut sont 6 heures et 20 %.",
+    "accountsTitle": "Comptes et connexion",
+    "accountsItems": [
+      "Les voyageurs créent leur propre compte avec nom, e-mail et mot de passe.",
+      "Les hôtels et autres prestataires ne s'inscrivent pas eux-mêmes. SafarisCon les invite ; ils terminent l'intégration, définissent un mot de passe et ajoutent leurs coordonnées de paiement avant de pouvoir encaisser.",
+      "Après l'inscription, nous envoyons par e-mail un code à 6 chiffres (environ 10 minutes). La connexion se fait par e-mail + mot de passe, puis un code de connexion à usage unique. Nous protégeons les comptes par vérification e-mail et code de connexion, pas par mot de passe seul. Les mots de passe sont stockés hachés. Se souvenir de moi émet un jeton d'actualisation d'environ un jour. La déconnexion termine cette session."
+    ],
+    "termsTitle": "Conditions d'utilisation",
+    "termsLead": "Ces conditions décrivent le produit SafarisCon actuel pour les voyageurs et les prestataires.",
+    "forGuests": "Pour les voyageurs",
+    "guestTerms": [
+      "Vous devez saisir un e-mail valide et terminer la vérification par code OTP.",
+      "Vous êtes responsable de l'exactitude des dates de réservation, des heures, du nombre de voyageurs et des champs de lieu que vous envoyez.",
+      "Une réservation est un engagement de payer l'acompte en ligne affiché et tout solde restant décrit sur l'offre. Les promotions s'appliquent uniquement si l'offre les a encore au moment de la réservation.",
+      "L'identité du prestataire reste masquée jusqu'au paiement. Utiliser l'application pour collecter des contacts avant le paiement n'est pas autorisé.",
+      "Après le paiement, vous recevez un code de réservation. Apportez-le (ou le QR / reçu) sur place.",
+      "L'annulation n'est possible que dans le délai indiqué sur cette réservation. Ensuite, aucun remboursement via ce bouton d'annulation.",
+      "SafarisCon est la place de marché et le détenteur des paiements. Le séjour / l'activité est réalisé par le prestataire indiqué."
+    ],
+    "forProviders": "Pour les prestataires",
+    "providerTerms": [
+      "Les offres deviennent publiques après l'approbation de SafarisCon. Vous fixez le % d'acompte en ligne sur l'offre (minimum 20 % du prix total). SafarisCon prélève 10 % du prix total sur l'acompte en ligne du client ; les voyageurs ne voient jamais ce taux de commission.",
+      "Vous devez enregistrer vos coordonnées MoMo ou bancaires avant que les clients puissent vous payer.",
+      "Vous pouvez définir les heures du délai d'annulation et le % de pénalité d'annulation sur l'offre (valeurs par défaut 6 heures / 20 %).",
+      "L'argent du voyageur est conservé jusqu'à la fin du délai d'annulation (ou jusqu'à une annulation à temps). Vous n'êtes pas payé au moment où il paie.",
+      "Si le voyageur annule à temps, vous recevez votre part des frais d'annulation, pas la réservation intégrale.",
+      "S'il n'annule pas, vous recevez votre part de l'acompte en ligne après le délai, une fois que SafarisCon confirme le versement (après 10 % de commission sur le prix total).",
+      "Terminer une réservation signifie uniquement vérifier le code — ne collectez pas un second montant en espèces.",
+      "N'indiquez pas les numéros de compte de paiement sur le formulaire public du service."
+    ],
+    "platform": "Plateforme",
+    "platformTerms": [
+      "Nous pouvons refuser ou suspendre les comptes qui abusent de l'OTP, des paiements ou des offres.",
+      "Les moyens de paiement proviennent du catalogue en direct. Ne supposez pas un seul opérateur.",
+      "La commission, le délai d'annulation par défaut et la pénalité par défaut peuvent différer selon l'offre / l'entreprise."
+    ],
+    "privacyTitle": "Politique de confidentialité — comment nous traitons vos données",
+    "privacyLead": "Nous utilisons vos informations pour gérer les comptes, les réservations, les reçus et les paiements. Nous ne vendons pas de données personnelles.",
+    "collectTitle": "Ce que nous collectons",
+    "collectRows": [
+      [
+        "Nom, e-mail, téléphone",
+        "Compte, contact de réservation, reçus, connexion OTP"
+      ],
+      [
+        "Mot de passe",
+        "Connexion uniquement (stocké haché)"
+      ],
+      [
+        "Dates de réservation, heures, nombre de voyageurs, destination",
+        "Pour créer et honorer la réservation"
+      ],
+      [
+        "Vos champs de lieu",
+        "Obligatoires sur les demandes de réservation afin que le prestataire puisse organiser le service"
+      ],
+      [
+        "Nom, e-mail et numéro MoMo de paiement (ou paiement par carte)",
+        "Pour encaisser le montant de la réservation"
+      ],
+      [
+        "Coordonnées MoMo / bancaires de paiement du prestataire",
+        "Pour payer le prestataire après le délai d'annulation — non visibles par les voyageurs"
+      ],
+      [
+        "Photos de l'offre",
+        "Affichées sur la place de marché"
+      ],
+      [
+        "Analytique produit",
+        "Pages vues et événements de réservation. Nous stockons une IP hachée, le type d'appareil et le navigateur — pas une IP brute dans l'enregistrement de l'événement"
+      ]
+    ],
+    "notTitle": "Ce que nous ne faisons pas",
+    "notItems": [
+      "Nous ne vendons pas vos données personnelles.",
+      "Nous ne montrons pas votre e-mail, téléphone ou réservation aux autres clients.",
+      "Nous ne plaçons pas le téléphone, l'adresse exacte ou le repère de carte du prestataire sur la page d'accueil publique.",
+      "Nous ne stockons pas votre code PIN de carte ni votre PIN MoMo. Le paiement par carte se fait sur la page du prestataire de paiement. L'approbation MoMo se fait sur votre téléphone."
+    ],
+    "hiddenTitle": "Quand les coordonnées du prestataire sont masquées ou déverrouillées",
+    "hiddenBody": "Avant le paiement, les offres utilisent un nom anonyme. Vous pouvez voir le district / quartier et les photos. Le téléphone, l'adresse exacte et l'itinéraire restent verrouillés. Après le paiement de votre acompte en ligne, cette réservation déverrouille pour vous l'identité, le contact et le lieu du prestataire. Les autres utilisateurs voient toujours l'offre anonyme.",
+    "processorsTitle": "Qui d'autre traite les données",
+    "processorItems": [
+      "XentriPay — encaisse les paiements MoMo/carte dans le portefeuille marchand SafarisCon, puis paie les prestataires / rembourse les voyageurs.",
+      "Envoi d'e-mails — OTP et messages de réservation.",
+      "Hébergement d'images — fichiers d'offres et de reçus."
+    ],
+    "controlsTitle": "Vos contrôles",
+    "controlsBody": "Mettez à jour le nom / téléphone du profil là où l'écran du compte le permet déjà. Déconnectez-vous pour terminer la session mémorisée. Les prestataires mettent à jour leurs coordonnées de paiement sur la page des coordonnées de paiement. Pour une suppression de compte ou un export de données, contactez {{email}}.",
+    "securityTitle": "Mesures de sécurité",
+    "securityBody": "HTTPS, mots de passe hachés, OTP hachés, jetons Bearer, contrôles de rôle, CORS et en-têtes de sécurité. Les routes privées de réservation et de paiement exigent un utilisateur connecté. Vous ne pouvez payer ou annuler que vos propres réservations.",
+    "paymentsTitle": "Paiements, annulations et remboursements",
+    "paymentsLead": "Vous payez un acompte en ligne dans l'application (fixé par le prestataire, au minimum 20 % du prix de l'offre). L'argent est conservé dans le portefeuille SafarisCon jusqu'à la fin du délai d'annulation.",
+    "paymentsHighlight": "Acompte payé. Présentez votre code sur place. Payez un solde restant seulement si l'offre l'indiquait. Vous pouvez annuler jusqu'à l'échéance ; si vous annulez à temps, vous êtes remboursé de ce que vous avez payé en ligne moins les frais d'annulation.",
+    "payingTitle": "Payer une réservation",
+    "pay1": "La devise est le RWF. Moyens : Mobile Money ou carte.",
+    "pay2": "Le prestataire fixe votre acompte en ligne — au minimum 20 % du prix de l'offre, jusqu'au montant intégral. Tout reste peut être dû à l'arrivée ou au départ comme indiqué sur l'offre.",
+    "pay3": "L'argent est encaissé dans le portefeuille SafarisCon. SafarisCon prélève 10 % du prix total sur votre acompte en ligne. Le prestataire n'est pas payé à ce moment.",
+    "pay4": "Une offre ne peut pas être payée tant que le prestataire n'a pas enregistré des coordonnées MoMo ou bancaires valides.",
+    "pay5": "Après le délai d'annulation, SafarisCon paie au prestataire sa part de votre acompte. La commission de la plateforme (10 % du prix total) est déjà prélevée sur l'acompte payé en ligne.",
+    "afterPayTitle": "Après un paiement réussi",
+    "afterPayBody": "Votre acompte en ligne est enregistré. Les coordonnées du prestataire et votre code / QR / reçu se déverrouillent. Vous ne pouvez annuler que jusqu'à l'échéance d'annulation de la réservation.",
+    "cancellationTitle": "Annulation",
+    "cancellationBody": "Seules les réservations payées peuvent être annulées pour un remboursement. L'offre fixe les heures avant le service à partir desquelles l'annulation se ferme (6 par défaut) et le pourcentage de ce que vous avez payé que vous perdez (20 par défaut). Utilisez toujours les chiffres indiqués sur votre réservation. Les remboursements arrivent généralement après un court délai de traitement.",
+    "moneyTitle": "Ce qui arrive à l'argent",
+    "money1": "Payé en ligne, sans annulation : après l'échéance, SafarisCon verse au prestataire sa part de votre acompte (après 10 % de commission sur le prix total). Tout solde sur place relève de vous et du prestataire.",
+    "money2": "Annulation à temps : remboursement = payé − frais d'annulation. Le remboursement revient via le partenaire de paiement.",
+    "money3": "Annulation trop tardive : aucun remboursement. La réservation reste utilisable sur place.",
+    "atVenueTitle": "Sur place",
+    "atVenueBody": "Le prestataire vérifie le code de réservation. Terminer la réservation n'entraîne aucun frais supplémentaire.",
+    "checkboxRegister": "J'accepte les Conditions d'utilisation et la Politique de confidentialité.",
+    "checkboxBooking": "J'accepte les Conditions et Paiements et remboursements. Les coordonnées du prestataire se déverrouillent après le paiement de l'acompte en ligne. L'argent est conservé jusqu'à la fin du délai d'annulation.",
+    "acceptTitle": "Accepter pour continuer",
+    "acceptBody": "Vous devez accepter les Conditions d'utilisation et la Politique de confidentialité avant d'utiliser les réservations, les paiements ou les tableaux de bord.",
+    "acceptButton": "J'accepte les Conditions et la Confidentialité",
+    "declineButton": "Refuser et se déconnecter",
+    "adminSkipNote": "Les administrateurs contournent cette étape d'acceptation."
+  }
+}

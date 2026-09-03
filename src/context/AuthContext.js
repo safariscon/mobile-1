@@ -6,6 +6,7 @@ import {
   setRefreshSessionHandler,
   setSessionExpiredHandler,
   setTermsRequiredHandler,
+  AUTH_TIMEOUT_MS,
 } from '../config/api';
 import i18n from '../i18n';
 import { connectRealtime, disconnectRealtime, joinRealtimeRooms, realtimeUserRooms } from '../lib/realtime';
@@ -253,6 +254,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, rememberMe }),
       });
@@ -284,6 +286,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp }),
       });
@@ -305,6 +308,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
@@ -346,6 +350,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, role: 'customer' }),
       });
@@ -369,6 +374,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -388,7 +394,7 @@ export function AuthProvider({ children }) {
     const paths = [`/auth/provider/onboarding?sellerId=${encoded}`, `/auth/provider/onboarding/${encoded}`];
     let lastError = null;
     for (const path of paths) {
-      const response = await apiFetch(path, { skipAuth: true, skipRefresh: true, timeoutMs: 8000 });
+      const response = await apiFetch(path, { skipAuth: true, skipRefresh: true, timeoutMs: AUTH_TIMEOUT_MS });
       const data = await parseJson(response);
       if (response.ok) return { success: true, data: data.provider || data.onboarding || data };
       lastError = backendError(response, data, 'Could not load provider invite.');
@@ -412,6 +418,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           providerName,
@@ -444,6 +451,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp }),
       });
@@ -465,6 +473,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
@@ -485,6 +494,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
@@ -505,6 +515,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         skipAuth: true,
         skipRefresh: true,
+        timeoutMs: AUTH_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp, newPassword }),
       });
@@ -541,6 +552,42 @@ export function AuthProvider({ children }) {
       throw lastError;
     } catch (error) {
       return { success: false, error: error.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getAccountDeletionStatus = async () => {
+    const response = await apiFetch('/auth/account/deletion-status');
+    const data = await parseJson(response);
+    if (!response.ok) throw backendError(response, data, 'Could not check account deletion status.');
+    return data;
+  };
+
+  const deleteAccount = async (confirm = 'DELETE') => {
+    setLoading(true);
+    try {
+      const response = await apiFetch('/auth/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm }),
+      });
+      const data = await parseJson(response);
+      if (!response.ok) {
+        const err = backendError(response, data, 'Could not delete account.');
+        err.code = data?.code;
+        err.details = data?.details;
+        throw err;
+      }
+      await clearSession();
+      return { success: true, ...data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+        details: error.details,
+      };
     } finally {
       setLoading(false);
     }
@@ -583,13 +630,15 @@ export function AuthProvider({ children }) {
     forgotPassword,
     resetPassword,
     updateProfile,
+    getAccountDeletionStatus,
+    deleteAccount,
     refreshUser,
     logout,
     isAuthenticated: !!user && !!token,
     isTourist: user?.role === 'tourist' || user?.role === 'customer',
     isSeller: isProvider(user),
     isAdmin: user?.role === 'admin',
-  }), [completeProviderRegistration, forgotPassword, loading, login, logout, refreshToken, refreshUser, register, registerBusiness, resendEmailOtp, resendLoginOtp, resetPassword, restoringSession, termsPending, token, updateProfile, user, verifyEmailOtp, verifyLoginOtp, acceptTerms, fetchProviderOnboarding]);
+  }), [completeProviderRegistration, deleteAccount, forgotPassword, getAccountDeletionStatus, loading, login, logout, refreshToken, refreshUser, register, registerBusiness, resendEmailOtp, resendLoginOtp, resetPassword, restoringSession, termsPending, token, updateProfile, user, verifyEmailOtp, verifyLoginOtp, acceptTerms, fetchProviderOnboarding]);
 
   return (
     <AuthContext.Provider value={value}>

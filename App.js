@@ -354,7 +354,7 @@ function MainAppContent() {
     browse: browseScreen,
     services: browseScreen,
     bookings: isAuthenticated ? <BookingsScreen onOpenRoute={setRouteBooking} focusBookingId={focusBookingId} /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
-    profile: isAuthenticated ? <ProfileScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
+    profile: isAuthenticated ? <ProfileScreen onNavigateTab={goTo} /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
     notifications: isAuthenticated ? <CustomerNotificationsScreen /> : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
     settings: isAuthenticated ? (isAdmin ? <AdminDashboard tab="settings" hideChrome /> : <CustomerSettingsScreen />) : <GuestAuthPrompt onLogin={() => setAuthScreen('login')} onRegister={() => setAuthScreen('register')} />,
     admin_analytics: <AdminDashboard tab="insights" hideChrome />,

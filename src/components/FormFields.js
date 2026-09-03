@@ -32,15 +32,19 @@ export function formatDateTimeValue(date) {
 }
 
 function normalizeOptions(options = []) {
-  return options.map((option) => {
+  return options.map((option, index) => {
+    if (typeof option === 'string' || typeof option === 'number') {
+      return { value: option, label: String(option) };
+    }
     if (Array.isArray(option)) {
-      return { value: option[0], label: option[1] };
+      return { value: option[0], label: option[1] ?? String(option[0] ?? '') };
     }
 
+    const value = option?.value ?? option?.id ?? option?.name ?? option?.label ?? `option-${index}`;
     return {
-      value: option.value ?? option.id ?? option.name ?? option.label,
-      label: option.label ?? option.name ?? String(option.value ?? ''),
-      description: option.description ?? option.meta ?? option.priceText ?? '',
+      value,
+      label: option?.label ?? option?.name ?? String(value),
+      description: option?.description ?? option?.meta ?? option?.priceText ?? '',
     };
   });
 }
@@ -100,6 +104,8 @@ export function SelectField({
   placeholder = 'Select option',
   searchable = true,
   error,
+  style,
+  compact = false,
 }) {
   const { colors, styles } = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -119,10 +125,14 @@ export function SelectField({
   };
 
   return (
-    <View style={styles.fieldWrap}>
+    <View style={[styles.fieldWrap, compact && styles.fieldWrapCompact, style]}>
       <Text style={styles.label}>{label}</Text>
       <TouchableOpacity
-        style={[styles.pressableField, selectedOption && styles.pressableFieldSelected]}
+        style={[
+          styles.pressableField,
+          compact && styles.pressableFieldCompact,
+          selectedOption && styles.pressableFieldSelected,
+        ]}
         onPress={open}
         activeOpacity={0.84}
         accessibilityRole="button"
@@ -172,7 +182,7 @@ export function SelectField({
 
             <FlatList
               data={filteredOptions}
-              keyExtractor={(option) => String(option.value)}
+              keyExtractor={(option, index) => `${String(option.value ?? 'opt')}-${index}`}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={<Text style={styles.emptyText}>No options found.</Text>}
               renderItem={({ item }) => {
@@ -389,13 +399,13 @@ export function ChipsField({ label, value, options, onChange, multiple = false, 
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.chipRow}>
-        {normalizedOptions.map((option) => {
+        {normalizedOptions.map((option, index) => {
           const active = multiple
             ? selected.includes(String(option.value))
             : String(value ?? '') === String(option.value);
           return (
             <TouchableOpacity
-              key={String(option.value)}
+              key={`${String(option.value ?? 'chip')}-${index}`}
               onPress={() => toggle(String(option.value))}
               activeOpacity={0.84}
               accessibilityRole="button"
@@ -429,14 +439,17 @@ export function DateTimeField(props) {
 
 const createStyles = (colors) => StyleSheet.create({
   fieldWrap: {
-    flex: 1,
-    marginTop: 13,
+    marginTop: 10,
+    width: '100%',
+  },
+  fieldWrapCompact: {
+    marginTop: 0,
   },
   label: {
     color: colors.text,
     fontSize: 12,
     fontWeight: '900',
-    marginBottom: 7,
+    marginBottom: 5,
   },
   input: {
     ...baseInputStyle(colors),
@@ -444,15 +457,18 @@ const createStyles = (colors) => StyleSheet.create({
     borderWidth: 1,
     fontSize: 13,
     fontWeight: '700',
+    height: 46,
     minHeight: 46,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 0,
   },
   dateInput: {
     minHeight: 46,
   },
   textArea: {
+    height: undefined,
     minHeight: 96,
+    paddingVertical: 10,
   },
   pressableField: {
     alignItems: 'center',
@@ -463,6 +479,10 @@ const createStyles = (colors) => StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 52,
     paddingHorizontal: 10,
+  },
+  pressableFieldCompact: {
+    minHeight: 44,
+    borderRadius: 10,
   },
   pressableFieldSelected: {
     ...baseInputStyle(colors),

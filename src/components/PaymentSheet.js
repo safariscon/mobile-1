@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { ANALYTICS_EVENTS, trackAnalytics } from '../lib/analytics';
 import {
@@ -24,6 +25,7 @@ function formatMoney(value) {
 }
 
 export default function PaymentSheet({ visible, booking, onClose, onPaid }) {
+  const { t } = useTranslation();
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
@@ -136,13 +138,14 @@ export default function PaymentSheet({ visible, booking, onClose, onPaid }) {
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.title}>Pay in full</Text>
+            <Text style={styles.title}>{t('paymentSheet.title')}</Text>
             <TouchableOpacity style={styles.close} onPress={onClose} activeOpacity={0.84}>
               <Feather name="x" size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.help}>Pay in full. Money is held until the cancel window ends.</Text>
+          <Text style={styles.help}>{t('paymentSheet.help')}</Text>
           <Text style={styles.amount}>{formatMoney(amount)}</Text>
+          {pmethod === 'momo' ? <Text style={styles.exactNote}>{t('paymentSheet.exactAmountNote')}</Text> : null}
           <SelectField
             label="Payment method"
             value={pmethod}
@@ -173,7 +176,8 @@ const createStyles = (themeColors) => StyleSheet.create({
   title: { color: themeColors.textStrong, fontSize: 24, fontWeight: '900' },
   close: { alignItems: 'center', borderColor: themeColors.border, borderRadius: 8, borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
   help: { color: themeColors.muted, fontSize: 13, fontWeight: '700', lineHeight: 19, marginBottom: 10 },
-  amount: { color: themeColors.primary, fontSize: 28, fontWeight: '900', marginBottom: 16 },
+  amount: { color: themeColors.primary, fontSize: 28, fontWeight: '900', marginBottom: 8 },
+  exactNote: { color: themeColors.muted, fontSize: 12, fontWeight: '700', lineHeight: 18, marginBottom: 16 },
   error: { color: themeColors.danger, fontSize: 12, fontWeight: '900', marginTop: 10 },
   success: { color: themeColors.success, fontSize: 12, fontWeight: '900', marginTop: 10 },
   button: { alignItems: 'center', backgroundColor: themeColors.primary, borderRadius: 12, height: 52, justifyContent: 'center', marginTop: 16 },

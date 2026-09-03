@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { MultilineField, NumberField, SelectField, TextField } from '../components/FormFields';
-import WorldLocationFields from '../components/WorldLocationFields';
+import ServiceLocationPicker from '../components/ServiceLocationPicker';
 import { categorySelectOptions, fetchServiceCategories } from '../api/categories';
 import { apiFetch } from '../config/api';
 import { useAuth } from '../context/AuthContext';
@@ -34,13 +34,18 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
     categoryId: '',
     category: 'hotel-rooms',
     description: '',
-    country: '',
-    countryCode: '',
-    state: '',
-    city: '',
-    sector: '',
-    latitude: '',
-    longitude: '',
+    location: {
+      country: '',
+      countryCode: '',
+      state: '',
+      city: '',
+      sector: '',
+      area: '',
+      latitude: '',
+      longitude: '',
+      formattedAddress: '',
+      fullAddress: '',
+    },
     payoutName: '',
     payoutNumber: '',
     optionName: '',
@@ -72,8 +77,13 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
   const categoryOptions = categories.length ? categorySelectOptions(categories) : SERVICE_CATEGORY_OPTIONS;
 
   const handleSubmit = async () => {
-    if (!form.title || !form.categoryId || !form.country || !form.city || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
+    const location = form.location || {};
+    if (!form.title || !form.categoryId || !location.country || !(location.city || location.district) || !form.payoutName || !form.payoutNumber || !form.optionName || !form.optionPrice) {
       setError(t('businessRegistration.required'));
+      return;
+    }
+    if (!location.latitude && !location.latitudeRaw) {
+      setError('Search and select a place so the map pin is set.');
       return;
     }
 
@@ -95,16 +105,25 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
           availableQuantity: 1,
           basePrice: Number(form.optionPrice) || 0,
           serviceLocation: {
-            country: form.country,
-            countryCode: form.countryCode,
-            state: form.state,
-            province: form.state,
-            city: form.city,
-            district: form.city,
-            sector: form.sector,
-            latitude: form.latitude,
-            longitude: form.longitude,
-            locationSource: 'admin_manual',
+            country: location.country,
+            countryCode: location.countryCode,
+            state: location.state,
+            province: location.state,
+            city: location.city,
+            district: location.city,
+            sector: location.area || location.sector,
+            area: location.area || location.sector,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            latitudeRaw: location.latitudeRaw || String(location.latitude || ''),
+            longitudeRaw: location.longitudeRaw || String(location.longitude || ''),
+            formattedAddress: location.formattedAddress || location.fullAddress,
+            fullAddress: location.fullAddress || location.formattedAddress,
+            placeName: location.placeName,
+            referenceName: location.referenceName,
+            placeId: location.placeId,
+            locationSource: location.locationSource || 'search',
+            isExactLocationVerified: Boolean(location.isExactLocationVerified),
           },
           payoutDetails: {
             method: 'mobile-money',
@@ -164,19 +183,12 @@ export default function BusinessRegistrationScreen({ onSubmitted }) {
           placeholder="Select category"
         />
         <MultilineField label={t('businessRegistration.businessDescription')} value={form.description} onChangeText={(value) => update('description', value)} placeholder="Example: We rent clean cars in Kigali with a driver or self-drive option." />
-        <WorldLocationFields
-          value={{ country: form.country, countryCode: form.countryCode, state: form.state, city: form.city, sector: form.sector }}
-          onChange={(location) => setForm((current) => ({
-            ...current,
-            country: location.country,
-            countryCode: location.countryCode,
-            state: location.state,
-            city: location.city,
-            sector: location.sector,
-          }))}
+        <ServiceLocationPicker
+          value={form.location}
+          onChange={(location) => update('location', location)}
+          title="Business location"
+          help="Search your place, select a result, and the map pin plus address fields fill in automatically."
         />
-        <NumberField allowDecimal allowNegative label={t('seller.latitude')} value={form.latitude} onChangeText={(value) => update('latitude', value)} />
-        <NumberField allowDecimal allowNegative label={t('seller.longitude')} value={form.longitude} onChangeText={(value) => update('longitude', value)} />
         <TextField label={t('seller.payoutAccountName')} value={form.payoutName} onChangeText={(value) => update('payoutName', value)} />
         <TextField label={t('seller.payoutAccountNumber')} value={form.payoutNumber} onChangeText={(value) => update('payoutNumber', value)} keyboardType="phone-pad" />
         <TextField label={t('businessRegistration.firstOption')} value={form.optionName} onChangeText={(value) => update('optionName', value)} />

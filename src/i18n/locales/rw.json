@@ -282,7 +282,7 @@
       "book": "Saba rezervasiyo",
       "bookText": "Ohereza ubusabe bwawe",
       "pay": "Ishyura mu mutekano",
-      "payText": "Ishyura avansi",
+      "payText": "Ishyura ingwate ya online (nibura 20%)",
       "unlock": "Bona ibisobanuro",
       "unlockText": "Bona amakuru y'utanga serivisi",
       "enjoy": "Ishimire serivisi",
@@ -817,6 +817,11 @@
     "from": "Guhera",
     "night": "ijoro",
     "viewDetails": "Reba details"
+  },
+  "paymentSheet": {
+    "title": "Ishyura ingwate ya online",
+    "help": "Ishyura ingwate yerekana hepfo. Amafaranga atungwa kugeza igihe cyo kuhagarika kirangiye.",
+    "exactAmountNote": "Telefoni yawe izasaba kwemeza amafaranga angana n'ayo."
   },
   "mockServices": {
     "hotelCategory": "Hotel n'amacumbi",

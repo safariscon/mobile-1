@@ -1,0 +1,148 @@
+{
+  "policy": {
+    "welcomeEyebrow": "Murakaza neza kuri SafarisCon",
+    "readBeforeContinue": "Soma buri gice mbere yo gukomeza.",
+    "tabs": {
+      "howItWorks": "Uko bikora",
+      "howItWorksShort": "Uko bikora",
+      "terms": "Amabwiriza yo gukoresha",
+      "termsShort": "Amabwiriza",
+      "privacy": "Politiki y'ibanga",
+      "privacyShort": "Ibanga",
+      "payments": "Kwishyura n'amasubiranyo",
+      "paymentsShort": "Kwishyura"
+    },
+    "howTitle": "Uko SafarisCon ikora",
+    "howLead": "SafarisCon ni isoko ryo gufata umwanya. Wishyura muri porogaramu. Dutunga amafaranga, turinda amakuru y'utanga serivisi kugeza wishyuye, hanyuma ni bwo ubona ibikenewe mu rugendo.",
+    "howStep1Title": "Reba mu mutekano",
+    "howStep1Body": "Serivisi ku mugaragaro zihisha izina nyaryo ry'utanga serivisi, telefoni, n'aderesi nyayo. Ubona icyiciro, agace, amafoto, n'igiciro.",
+    "howStep2Title": "Kora konti",
+    "howStep2Body": "Imeri n'ijambo ry'ibanga, hanyuma twemeza imeri yawe hakoreshejwe kode imwe. Kwinjira ni ijambo ry'ibanga hamwe na kode twohereza kuri imeri.",
+    "howStep3Title": "Saba gufata umwanya",
+    "howStep3Body": "Zimwe serivisi zemeza ubwazo; izindi zitegereza utanga serivisi. Utanga serivisi ashyiraho amafaranga wishyura online ubu — nibura 20% y'igiciro cyose cy'irangamimerere. Isigaye ishobora kwishyurwa ugeze aho cyangwa igihe uva, cyangwa wishyura igiciro cyose online.",
+    "howStep4Title": "Ishyura na Mobile Money cyangwa ikarita",
+    "howStep4Body": "Ishyura ingwate yawe ya online ukoresheje Mobile Money cyangwa ikarita. Amafaranga agana muri porofolio ya SafarisCon, si ku mutanga serivisi ako kanya. Iyo kwishyura byagenze neza, amakuru y'utanga serivisi n'ikode y'icyasabwe birakinguka.",
+    "howStep5Title": "Hagarika gusa igihe kiracyari gifunguye",
+    "howStep5Body": "Ibisanzwe: kugeza amasaha 6 mbere ya serivisi, ushobora guhagarika ukabona 80%; 20% ni igiciro cyo guhagarika. Serivisi ishobora gushyiraho amasaha n'ijanisha bitandukanye. Nyuma y'igihe ntarengwa, Hagarika bihishwa kandi icyasabwe kigumana agaciro.",
+    "howStep6Title": "Erekana ikode yawe ku kigo",
+    "howStep6Body": "Utanga serivisi asuzuma ikode yawe. Ishyura isigaye ku kigo gusa niba irangamimerere yerekanye ko hari amafaranga asigaye nyuma y'ingwate yawe ya online.",
+    "defaultCancelNote": "Buri serivisi yerekana igihe cyayo cyo kuhagarika n'amafaranga. Bisanzwe ni amasaha 6 na 20%.",
+    "accountsTitle": "Konti n'kwinjira",
+    "accountsItems": [
+      "Abashyitsi bakora konti yabo n'izina, imeri, n'ijambo ry'ibanga.",
+      "Amahoteli n'abandi batanga serivisi ntibiyandikisha ubwabo. SafarisCon irabatumira; barangiza kwiyandikisha, bashyiraho ijambo ry'ibanga, kandi bongereho amakuru yo kwishyurwa mbere yo gukusanya kwishyura.",
+      "Nyuma yo kwiyandikisha twohereza kode y'imibare 6 kuri imeri (hafi iminota 10). Kwinjira ni imeri + ijambo ry'ibanga, hanyuma kode yo kwinjira y'inshuro imwe. Turinda konti hakoreshejwe kwemeza imeri n'kode yo kwinjira, si ijambo ry'ibanga gusa. Amagambo y'ibanga abikwa yahinduwe. Nyibuke itanga inyemezabumenyi yo kuvugurura hafi umunsi umwe. Gusohoka kurangiza icyo gihe."
+    ],
+    "termsTitle": "Amabwiriza yo gukoresha",
+    "termsLead": "Aya mabwiriza asobanura igicuruzwa cya SafarisCon ku bashyitsi n'abatanga serivisi.",
+    "forGuests": "Ku bashyitsi",
+    "guestTerms": [
+      "Ugomba kwandika imeri nyayo urangize kwemeza hakoreshejwe kode.",
+      "Uri n'inshingano zo kuba amatariki, amasaha, umubare w'abashyitsi, n'aho uherereye wanditse ari ukuri.",
+      "Gufata umwanya ni amasezerano yo kwishyura ingwate ya online yerekana n'amasigaye yerekanwe ku irangamimerere. Icyamamare gikora gusa niba serivisi icyari ifite igihe ufata umwanya.",
+      "Umwirondoro w'utanga serivisi uhishwa kugeza wishyuye. Gukoresha porogaramu gukusanya imibonano mbere yo kwishyura ntibyemewe.",
+      "Nyuma yo kwishyura ubona kode y'icyasabwe. Yizane (cyangwa QR / inyemezabuguzi) ku kigo.",
+      "Guhagarika bikorwa gusa mu gihe kiri ku cyasabwe. Nyuma yacyo, nta masubiranyo kuri iyi buto yo kuhagarika.",
+      "SafarisCon ni isoko n'uwatunga amafaranga. Gutura / igikorwa bikozwe n'utanga serivisi wanditswe."
+    ],
+    "forProviders": "Ku batanga serivisi",
+    "providerTerms": [
+      "Serivisi zagaragara ku isoko nyuma yo kwemezwa na SafarisCon. Wishinga % y'ingwate ya online ku irangamimerere (nibura 20% y'igiciro cyose). SafarisCon ifata 10% y'igiciro cyose cy'irangamimerere mu ngwate umukiriya yishyuye online; abashyitsi ntibabona iyo komisiyo.",
+      "Ugomba kubika amakuru ya MoMo cyangwa banki yo kwishyurwa mbere y'uko abakiriya bakwishyura.",
+      "Ushobora gushyiraho amasaha y'igihe cyo kuhagarika n'ijanisha ry'igihano cyo kuhagarika ku serivisi (bisanzwe amasaha 6 / 20%).",
+      "Amafaranga y'umushyitsi atungwa kugeza igihe cyo kuhagarika kirangiye (cyangwa umushyitsi ahagaritse mu gihe). Ntiwishyurwa mu gihe yishyuye.",
+      "Niba umushyitsi ahagaritse mu gihe, wakira umugabane wawe w'amafaranga yo kuhagarika, si icyasabwe cyose.",
+      "Niba atahagaritse, ubona igice cyawe cy'ingwate ya online nyuma y'igihe cyo kuhagarika, nyuma yo kwemeza kwishyurwa na SafarisCon (nyuma ya komisiyo ya 10% y'igiciro cyose cy'irangamimerere).",
+      "Kurarangiza icyasabwe bisobanura kwemeza kode gusa — ntukusanye amafaranga ya kabiri mu ntoki.",
+      "Ntushyire nimero za konti yo kwishyurwa ku ifishi rusange ya serivisi."
+    ],
+    "platform": "Urubuga",
+    "platformTerms": [
+      "Dushobora kwanga cyangwa guhagarika konti zikoresha nabi OTP, kwishyura, cyangwa serivisi.",
+      "Uburyo bwo kwishyura buva ku rutonde rw'ubu. Ntukekereze sosiyete imwe ya telefoni.",
+      "Komisiyo, igihe gisanzwe cyo kuhagarika, n'igihano gisanzwe bishobora gutandukana ku serivisi / ubucuruzi."
+    ],
+    "privacyTitle": "Politiki y'ibanga — uko dukoresha amakuru yawe",
+    "privacyLead": "Dukoresha amakuru yawe gucunga konti, ibyasabwe, inyemezabuguzi, n'kwishyura. Ntitugurisha amakuru yihariye.",
+    "collectTitle": "Ibyo dukusanya",
+    "collectRows": [
+      [
+        "Izina, imeri, telefoni",
+        "Konti, aho uhura ku cyasabwe, inyemezabuguzi, kwinjira hakoreshejwe OTP"
+      ],
+      [
+        "Ijambo ry'ibanga",
+        "Kwinjira gusa (ribikwa ryahinduwe)"
+      ],
+      [
+        "Amatariki y'icyasabwe, amasaha, umubare w'abashyitsi, aho ujya",
+        "Gukora no kurangiza icyasabwe"
+      ],
+      [
+        "Ibyiciro by'aho uherereye",
+        "Birakenewe ku byasabwe kugira ngo utanga serivisi ateganye serivisi"
+      ],
+      [
+        "Izina, imeri, n'numero ya MoMo yo kwishyura (cyangwa kwishyura n'ikarita)",
+        "Gukusanya amafaranga y'icyasabwe"
+      ],
+      [
+        "Amakuru ya MoMo / banki yo kwishyurwa k'utanga serivisi",
+        "Kwishyura utanga serivisi nyuma y'igihe cyo kuhagarika — ntiberekanwa abashyitsi"
+      ],
+      [
+        "Amafoto ya serivisi",
+        "Agaragara ku isoko"
+      ],
+      [
+        "Ibisuzumwa by'igicuruzwa",
+        "Reba za rupapuro n'ibikorwa by'icyasabwe. Dutunga IP yahinduwe, ubwoko bw'igikoresho, na mushakisha — si IP nyayo mu nyandiko y'igikorwa"
+      ]
+    ],
+    "notTitle": "Ibyo tudakora",
+    "notItems": [
+      "Ntitugurisha amakuru yawe yihariye.",
+      "Ntidushyira abandi bakiriya imeri, telefoni, cyangwa icyasabwe cyawe.",
+      "Ntidushyira telefoni y'utanga serivisi, aderesi nyayo, cyangwa ikimenyetso cy'ikarita ku rupapuro rusange rwa mbere.",
+      "Ntidutunga PIN y'ikarita yawe cyangwa PIN ya MoMo. Kwishyura n'ikarita biba ku rupapuro rw'umutanga kwishyura. Kwemera MoMo biba kuri telefoni yawe."
+    ],
+    "hiddenTitle": "Igihe amakuru y'utanga serivisi ahishwa cyangwa akingurwa",
+    "hiddenBody": "Mbere yo kwishyura, serivisi zikoresha izina ridahishurwa. Ushobora kubona akarere / agace n'amafoto. Telefoni, aderesi nyayo, n'inzira biguma bifunze. Nyuma yo kwishyura ingwate yawe ya online, icyo cyasabwe gikungurira umwirondoro, aho uhura, n'aho biherereye. Abandi bakoresha bagikomeza kubona serivisi idahishurwa.",
+    "processorsTitle": "Abandi bakoresha amakuru",
+    "processorItems": [
+      "XentriPay — ikusanya kwishyura kwa MoMo/ikarita muri porofolio y'umucuruzi ya SafarisCon hanyuma yishyura abatanga serivisi / isubiza abashyitsi.",
+      "Kohereza imeri — OTP n'ubutumwa bw'icyasabwe.",
+      "Kubika amafoto — amadosiye ya serivisi n'inyemezabuguzi."
+    ],
+    "controlsTitle": "Uko ubishobora kugenzura",
+    "controlsBody": "Hindura izina / telefoni aho urupapuro rwa konti rumaze kubyemera. Sohoka kugira ngo urangize igihe cyibutse. Abatanga serivisi bahindura amakuru yo kwishyurwa ku rupapuro rw'amakuru yo kwishyurwa. Ku gusiba konti cyangwa kohereza amakuru, andikira {{email}}.",
+    "securityTitle": "Ingamba z'umutekano",
+    "securityBody": "HTTPS, amagambo y'ibanga yahinduwe, OTP zahinduwe, inyemezabumenyi za Bearer, isuzuma ry'inshingano, CORS, n'imitwe y'umutekano. Inzira z'ibanga z'icyasabwe n'izo kwishyura zisaba ukoresha winjiye. Ushobora kwishyura cyangwa kuhagarika ibyasabwe byawe gusa.",
+    "paymentsTitle": "Kwishyura, kuhagarika, n'amasubiranyo",
+    "paymentsLead": "Wishyura ingwate ya online muri porogaramu (ishyirwaho n'utanga serivisi, nibura 20% y'igiciro cyose). Amafaranga atungwa muri porofolio ya SafarisCon kugeza igihe cyo kuhagarika kirangiye.",
+    "paymentsHighlight": "Ingwate yishyuwe. Erekana ikode yawe ku kigo. Ishyura isigaye gusa niba irangamimerere yerekanye. Ushobora guhagarika kugeza ku gihe cyerekanwe; niba uhagaritse mu gihe, usubizwa amafaranga wishyuye online ukuyemo igiciro cyo guhagarika.",
+    "payingTitle": "Kwishyura icyasabwe",
+    "pay1": "Ifaranga ni RWF. Uburyo: Mobile Money cyangwa ikarita.",
+    "pay2": "Utanga serivisi ashyiraho ingwate yawe ya online — nibura 20% y'igiciro cyose, kugeza ku giciro cyose. Isigaye ishobora kwishyurwa ugeze aho cyangwa igihe uva nk'uko byerekanwe ku irangamimerere.",
+    "pay3": "Amafaranga akusanywa muri porofolio ya SafarisCon. SafarisCon ifata 10% y'igiciro cyose cy'irangamimerere mu ngwate yawe ya online. Utanga serivisi ntacyishyurwa ako kanya.",
+    "pay4": "Serivisi ntishobora kwishyurwa kugeza utanga serivisi abitse amakuru nyayo ya MoMo cyangwa banki yo kwishyurwa.",
+    "pay5": "Nyuma y'igihe cyo kuhagarika, SafarisCon ishishyura utanga serivisi igice cye cy'ingwate yawe. Komisiyo y'urubuga (10% y'igiciro cyose) yafashwe mu ngwate wishyuye online.",
+    "afterPayTitle": "Nyuma yo kwishyura neza",
+    "afterPayBody": "Ingwate yawe ya online yanditswe. Amakuru y'utanga serivisi n'ikode yawe / QR / inyemezabuguzi birakinguka. Ushobora guhagarika gusa kugeza ku gihe ntarengwa cyo guhagarika.",
+    "cancellationTitle": "Guhagarika",
+    "cancellationBody": "Ibyasabwe byishyuwe gusa ni byo bishobora kuhagarikwa kugira ngo hasubizwe amafaranga. Serivisi ishyiraho amasaha mbere ya serivisi aho kuhagarika bifungwa (bisanzwe 6) n'ijanisha ry'icyo wishyuye utakaza (bisanzwe 20). Buri gihe koresha imibare iri ku cyasabwe cyawe. Amasubiranyo akunze kugera nyuma y'igihe gito cyo gukorwa.",
+    "moneyTitle": "Ibibera ku mafaranga",
+    "money1": "Wishyuye online, utahagaritse: nyuma y'igihe cyo kuhagarika, SafarisCon ishishyura utanga serivisi igice cye cy'ingwate yawe (nyuma ya komisiyo ya 10% y'igiciro cyose). Amafaranga asigaye ku kigo ari hagati yawe n'utanga serivisi.",
+    "money2": "Hagarika mu gihe: amasubiranyo = yishyuwe − amafaranga yo kuhagarika. Amasubiranyo asubira binyuze ku mufatanyabikorwa wo kwishyura.",
+    "money3": "Hagarika nyuma y'igihe: nta masubiranyo. Icyasabwe gikomeza gukoreshwa ku kigo.",
+    "atVenueTitle": "Ku kigo",
+    "atVenueBody": "Utanga serivisi yemeza kode y'icyasabwe. Kurangiza icyasabwe ntibishyura ikindi.",
+    "checkboxRegister": "Nemeye Amabwiriza yo gukoresha na Politiki y'ibanga.",
+    "checkboxBooking": "Nemeye Amabwiriza n'Kwishyura n'amasubiranyo. Amakuru y'utanga serivisi birakinguka nyuma yo kwishyura ingwate ya online. Amafaranga atungwa kugeza igihe cyo kuhagarika kirangiye.",
+    "acceptTitle": "Emera kugira ngo ukomeze",
+    "acceptBody": "Ugomba kwemera Amabwiriza yo gukoresha na Politiki y'ibanga mbere yo gukoresha ibyasabwe, kwishyura, cyangwa imbonerahamwe.",
+    "acceptButton": "Nemeye Amabwiriza n'Ibanga",
+    "declineButton": "Hakana maze usohoke",
+    "adminSkipNote": "Abadiminisitiri barusha iyi nzira yo kwemera."
+  }
+}

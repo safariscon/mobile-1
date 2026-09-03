@@ -1,22 +1,56 @@
 import { Platform } from 'react-native';
 import { isAuthApiPath, isJwtAuthError, isPaymentApiPath } from '../lib/session';
 
+/** Default wait for normal API calls (ms). */
+export const DEFAULT_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS) || 20000;
+
+/** Auth / email OTP calls often wait on SMTP — give them more time. */
+export const AUTH_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_AUTH_TIMEOUT_MS) || 45000;
+
 const configuredBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 const isDevelopment = typeof __DEV__ !== 'undefined' && __DEV__;
+const backendPort = String(process.env.EXPO_PUBLIC_API_PORT || '5000').trim() || '5000';
 
-function getWebLocalBackendUrl() {
-  if (typeof window === 'undefined') return 'http://localhost:5000/api';
-  const hostname = window.location?.hostname || 'localhost';
-  return `http://${hostname}:5000/api`;
+function getExpoLanHost() {
+  try {
+    // Prefer Metro / Expo Go host (e.g. 192.168.1.23:8081) so phone hits the PC LAN IP.
+    // eslint-disable-next-line global-require, import/no-extraneous-dependencies
+    const Constants = require('expo-constants').default;
+    const hostUri = Constants?.expoConfig?.hostUri
+      || Constants?.manifest2?.extra?.expoGo?.debuggerHost
+      || Constants?.manifest?.debuggerHost
+      || Constants?.linkingUri;
+    const host = String(hostUri || '')
+      .replace(/^[a-z]+:\/\//i, '')
+      .split('/')[0]
+      .split(':')[0]
+      .trim();
+    if (host && host !== 'localhost' && host !== '127.0.0.1') return host;
+  } catch (_error) {
+    // expo-constants unavailable
+  }
+  return null;
 }
 
-const localBackendBaseUrl = Platform.select({
-  android: 'http://192.168.184.9:5000/api',
-  web: getWebLocalBackendUrl(),
-  default: 'http://localhost:5000/api',
-});
+function getWebLocalBackendUrl() {
+  if (typeof window === 'undefined') return `http://localhost:${backendPort}/api`;
+  const hostname = window.location?.hostname || 'localhost';
+  return `http://${hostname}:${backendPort}/api`;
+}
 
-const androidDevelopmentBaseUrl = 'http://localhost:5000/api';
+function lanBackendUrl(host) {
+  return host ? `http://${host}:${backendPort}/api` : '';
+}
+
+const expoLanHost = getExpoLanHost();
+const hardcodedLanFallback = '192.168.1.23';
+
+const localBackendBaseUrl = Platform.select({
+  android: lanBackendUrl(expoLanHost || hardcodedLanFallback),
+  ios: lanBackendUrl(expoLanHost || hardcodedLanFallback),
+  web: getWebLocalBackendUrl(),
+  default: lanBackendUrl(expoLanHost || hardcodedLanFallback) || `http://localhost:${backendPort}/api`,
+});
 
 function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
@@ -26,12 +60,22 @@ function uniqueBaseUrls(urls) {
   return [...new Set(urls.map(normalizeBaseUrl).filter(Boolean))];
 }
 
+/**
+ * Prefer:
+ * 1) EXPO_PUBLIC_API_BASE_URL
+ * 2) Metro/Expo LAN host (same IP as exp://192.168.x.x:8081)
+ * 3) Hardcoded LAN fallback
+ * Never put phone "localhost" first — that is the phone itself, not your PC.
+ */
 export const API_BASE_URLS = uniqueBaseUrls(
-  Platform.OS === 'android'
-    ? isDevelopment
-      ? [configuredBaseUrl, androidDevelopmentBaseUrl, localBackendBaseUrl]
-      : [configuredBaseUrl]
-    : [localBackendBaseUrl, configuredBaseUrl]
+  isDevelopment
+    ? [
+        configuredBaseUrl,
+        localBackendBaseUrl,
+        lanBackendUrl(hardcodedLanFallback),
+        Platform.OS === 'web' ? getWebLocalBackendUrl() : '',
+      ]
+    : [configuredBaseUrl, localBackendBaseUrl]
 );
 
 export const API_BASE_URL = API_BASE_URLS[0];
@@ -75,6 +119,12 @@ async function peekJson(response) {
   }
 }
 
+function resolveTimeoutMs(path, timeoutMs) {
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) return timeoutMs;
+  if (isAuthApiPath(path)) return AUTH_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
+
 async function requestOnce(baseUrl, path, fetchOptions, timeoutMs, signal) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -101,7 +151,7 @@ async function requestWithFallback(path, fetchOptions, timeoutMs, signal) {
       return await requestOnce(baseUrl, path, fetchOptions, timeoutMs, signal);
     } catch (error) {
       lastError = error.name === 'AbortError'
-        ? new Error(`Backend request timed out at ${baseUrl}. Please check your connection and try again.`)
+        ? new Error(`Backend request timed out after ${Math.round(timeoutMs / 1000)}s at ${baseUrl}. Please check your connection and try again.`)
         : new Error(`Failed to fetch ${baseUrl}${path}. ${error.message || 'Backend is not reachable.'}`);
     }
   }
@@ -110,7 +160,8 @@ async function requestWithFallback(path, fetchOptions, timeoutMs, signal) {
 
 export async function apiFetch(path, options = {}) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const { skipAuth, skipRefresh, signal, timeoutMs = 6000, ...fetchOptions } = options;
+  const { skipAuth, skipRefresh, signal, timeoutMs, ...fetchOptions } = options;
+  const effectiveTimeoutMs = resolveTimeoutMs(normalizedPath, timeoutMs);
   const headers = {
     ...(fetchOptions.headers || {}),
   };
@@ -122,7 +173,7 @@ export async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  const response = await requestWithFallback(normalizedPath, { ...fetchOptions, headers }, timeoutMs, signal);
+  const response = await requestWithFallback(normalizedPath, { ...fetchOptions, headers }, effectiveTimeoutMs, signal);
   const data = await peekJson(response);
 
   if (response.status === 403 && data?.code === 'TERMS_NOT_ACCEPTED') {
@@ -147,7 +198,7 @@ export async function apiFetch(path, options = {}) {
     const retryHeaders = { ...headers };
     const nextToken = authTokenProvider();
     if (nextToken) retryHeaders.Authorization = `Bearer ${nextToken}`;
-    return requestWithFallback(normalizedPath, { ...fetchOptions, headers: retryHeaders }, timeoutMs, signal);
+    return requestWithFallback(normalizedPath, { ...fetchOptions, headers: retryHeaders }, effectiveTimeoutMs, signal);
   }
 
   if (!isPaymentApiPath(normalizedPath) || jwtError) {

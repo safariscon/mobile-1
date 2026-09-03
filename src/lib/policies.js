@@ -1,8 +1,8 @@
-import { POLICY_TABS, SUPPORT_CONTACT } from './policyContent';
+import { POLICY_TAB_KEYS, SUPPORT_CONTACT } from './policyContent';
 
-export const POLICY_PAGES = POLICY_TABS.map((tab) => ({
+export const POLICY_PAGES = POLICY_TAB_KEYS.map((tab) => ({
   key: tab.key,
-  label: tab.label,
+  labelKey: tab.labelKey,
   path: `/${tab.key}`,
 }));
 

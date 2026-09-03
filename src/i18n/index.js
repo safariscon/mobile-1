@@ -6,6 +6,13 @@ import { initReactI18next } from 'react-i18next';
 import en from './locales/en.json';
 import fr from './locales/fr.json';
 import rw from './locales/rw.json';
+import policyEn from '../lib/policyContent.en.json';
+import policyFr from '../lib/policyContent.fr.json';
+import policyRw from '../lib/policyContent.rw.json';
+
+function mergePolicy(base, policyBundle) {
+  return { ...base, ...policyBundle };
+}
 
 // Version the first-run choice so existing installs receive the updated
 // language welcome screen once, then keep the user's new selection.
@@ -27,9 +34,9 @@ function getDeviceLanguage() {
 i18n.use(initReactI18next).init({
   compatibilityJSON: 'v4',
   resources: {
-    en: { translation: en },
-    rw: { translation: rw },
-    fr: { translation: fr },
+    en: { translation: mergePolicy(en, policyEn) },
+    rw: { translation: mergePolicy(rw, policyRw) },
+    fr: { translation: mergePolicy(fr, policyFr) },
   },
   lng: getDeviceLanguage(),
   fallbackLng: 'en',

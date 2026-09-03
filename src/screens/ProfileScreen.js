@@ -10,9 +10,9 @@ import { fetchSellerPaymentProviders, fetchSellerPayoutDetails, saveSellerPayout
 import { roleLabel, userInitials } from '../lib/navigation';
 import { baseInputStyle } from '../theme/inputStyles';
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ onNavigateTab }) {
   const { t } = useTranslation();
-  const { user, logout, isSeller, forgotPassword, resetPassword, updateProfile, loading } = useAuth();
+  const { user, logout, isSeller, isAdmin, forgotPassword, resetPassword, updateProfile, getAccountDeletionStatus, deleteAccount, loading } = useAuth();
   const { colors, isDark } = useTheme();
   const styles = createStyles(colors, isDark);
   const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
@@ -23,12 +23,26 @@ export default function ProfileScreen() {
   const [phone, setPhone] = useState(user?.phone || '');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deletionStatus, setDeletionStatus] = useState(null);
   const [savingPayout, setSavingPayout] = useState(false);
   const [payoutMethod, setPayoutMethod] = useState('momo');
   const [payoutProviderId, setPayoutProviderId] = useState('mtn');
   const [payoutName, setPayoutName] = useState('');
   const [payoutNumber, setPayoutNumber] = useState('');
   const [providers, setProviders] = useState({ mobileMoneyProviders: [], bankProviders: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    getAccountDeletionStatus()
+      .then((status) => {
+        if (!cancelled) setDeletionStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setDeletionStatus(null);
+      });
+    return () => { cancelled = true; };
+  }, [getAccountDeletionStatus, user?._id || user?.id]);
 
   useEffect(() => {
     if (!isSeller) return;
@@ -107,6 +121,51 @@ export default function ProfileScreen() {
       onConfirm: () => {
         closeDialog();
         logout();
+      },
+    });
+  };
+
+  const goToSellerServices = () => {
+    if (typeof onNavigateTab === 'function') {
+      onNavigateTab('seller_services');
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    if (isAdmin) {
+      showResult(t('common.error'), 'Admin accounts cannot be self-deleted.', 'error');
+      return;
+    }
+    if (deletionStatus && !deletionStatus.canDelete) {
+      if (deletionStatus.redirect === 'seller_services' || deletionStatus.code === 'PROVIDER_MUST_DELETE_SERVICES') {
+        showResult('Delete services first', deletionStatus.message || 'Remove all services before deleting your account.', 'error');
+        goToSellerServices();
+        return;
+      }
+      showResult(t('common.error'), deletionStatus.message || 'Account cannot be deleted yet.', 'error');
+      return;
+    }
+    if (deleteConfirm.trim().toUpperCase() !== 'DELETE') {
+      showResult(t('common.error'), 'Type DELETE in the box to confirm.', 'error');
+      return;
+    }
+    askConfirm({
+      title: 'Delete account?',
+      message: 'This permanently removes your account and cannot be undone.',
+      confirmLabel: 'Delete account',
+      destructive: true,
+      onConfirm: async () => {
+        closeDialog();
+        const result = await deleteAccount('DELETE');
+        if (result.success) {
+          showResult(t('common.success'), 'Account deleted.');
+          return;
+        }
+        if (result.details) setDeletionStatus(result.details);
+        if (result.code === 'PROVIDER_MUST_DELETE_SERVICES' || result.details?.redirect === 'seller_services') {
+          goToSellerServices();
+        }
+        showResult(t('common.error'), result.error || 'Could not delete account.', 'error');
       },
     });
   };
@@ -217,6 +276,53 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Policies</Text>
       </View>
       <PolicyLinks />
+
+      <View style={styles.dangerSection}>
+        <Text style={styles.sectionTitle}>Delete account</Text>
+        <Text style={styles.helpText}>
+          Permanently remove your SafarisCon account. This cannot be undone.
+        </Text>
+        {deletionStatus ? (
+          <View style={styles.deletionCard}>
+            <Text style={styles.deletionMessage}>{deletionStatus.message}</Text>
+            {deletionStatus.blockers?.services > 0 ? (
+              <Text style={styles.deletionMeta}>Services listed: {deletionStatus.blockers.services}</Text>
+            ) : null}
+            {deletionStatus.blockers?.pendingBookings > 0 ? (
+              <Text style={styles.deletionMeta}>Pending bookings: {deletionStatus.blockers.pendingBookings}</Text>
+            ) : null}
+            {deletionStatus.blockers?.paidBookings > 0 ? (
+              <Text style={styles.deletionMeta}>Paid / unlocked bookings: {deletionStatus.blockers.paidBookings}</Text>
+            ) : null}
+            {deletionStatus.blockers?.unpaidBookings > 0 && deletionStatus.canDelete ? (
+              <Text style={styles.deletionMeta}>Unpaid bookings to fail: {deletionStatus.blockers.unpaidBookings}</Text>
+            ) : null}
+          </View>
+        ) : null}
+        {(deletionStatus?.redirect === 'seller_services' || deletionStatus?.code === 'PROVIDER_MUST_DELETE_SERVICES') ? (
+          <TouchableOpacity style={styles.saveButton} onPress={goToSellerServices} activeOpacity={0.85}>
+            <Text style={styles.saveText}>Go to my services</Text>
+          </TouchableOpacity>
+        ) : null}
+        {!isAdmin ? (
+          <>
+            <TextInput
+              value={deleteConfirm}
+              onChangeText={setDeleteConfirm}
+              placeholder="Type DELETE to confirm"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              style={styles.input}
+            />
+            <TouchableOpacity style={styles.deleteButton} onPress={confirmDeleteAccount} disabled={loading} activeOpacity={0.85}>
+              {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.deleteButtonText}>Delete my account</Text>}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <Text style={styles.helpText}>Admin accounts cannot be self-deleted.</Text>
+        )}
+      </View>
 
       <TouchableOpacity style={styles.logoutLink} onPress={confirmLogout} activeOpacity={0.85}>
         <Feather name="log-out" size={16} color="#DC2626" />
@@ -415,5 +521,47 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 10,
+  },
+  dangerSection: {
+    borderColor: '#FECACA',
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    marginTop: 8,
+    padding: 14,
+    backgroundColor: isDark ? '#3f1515' : '#FFF5F5',
+  },
+  deletionCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+    padding: 12,
+  },
+  deletionMessage: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  deletionMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  deleteButton: {
+    alignItems: 'center',
+    backgroundColor: '#DC2626',
+    borderRadius: 12,
+    height: 46,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  deleteButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
   },
 });

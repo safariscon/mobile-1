@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
+import { useTranslation } from 'react-i18next';
 import { SelectField, TextField } from '../components/FormFields';
 import PolicyLinks from '../components/PolicyLinks';
-import WorldLocationFields from '../components/WorldLocationFields';
+import ServiceLocationPicker from '../components/ServiceLocationPicker';
 import { useAuth } from '../context/AuthContext';
 import { SERVICE_CATEGORY_OPTIONS } from '../data/formOptions';
 import { locationToText } from '../lib/geo';
-import { CHECKBOX_COPY } from '../lib/policyContent';
+import { buildCheckboxCopy } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import useThemedStyles from '../theme/useThemedStyles';
 
@@ -18,6 +19,8 @@ export default function PublicBusinessRegisterScreen({ onBack, onNavigateToLogin
   const themed = useThemedStyles(createStyles);
   colors = themed.colors;
   styles = themed.styles;
+  const { t } = useTranslation();
+  const checkboxCopy = buildCheckboxCopy(t);
   const { registerBusiness, loading } = useAuth();
   const [form, setForm] = useState({
     businessName: '',
@@ -80,7 +83,19 @@ export default function PublicBusinessRegisterScreen({ onBack, onNavigateToLogin
         province: form.location.state,
         city: form.location.city,
         district: form.location.city,
-        sector: form.location.sector,
+        sector: form.location.area || form.location.sector,
+        area: form.location.area || form.location.sector,
+        latitude: form.location.latitude,
+        longitude: form.location.longitude,
+        latitudeRaw: form.location.latitudeRaw || String(form.location.latitude || ''),
+        longitudeRaw: form.location.longitudeRaw || String(form.location.longitude || ''),
+        formattedAddress: form.location.formattedAddress || form.location.fullAddress,
+        fullAddress: form.location.fullAddress || form.location.formattedAddress,
+        placeName: form.location.placeName,
+        referenceName: form.location.referenceName,
+        placeId: form.location.placeId,
+        locationSource: form.location.locationSource || 'search',
+        isExactLocationVerified: Boolean(form.location.isExactLocationVerified),
       },
     });
     if (!result.success) {
@@ -118,12 +133,17 @@ export default function PublicBusinessRegisterScreen({ onBack, onNavigateToLogin
         <TextField label="Business description" value={form.businessDescription} onChangeText={(value) => update('businessDescription', value)} />
         <TextField label="First service name" value={form.serviceName} onChangeText={(value) => update('serviceName', value)} />
         <TextField label="Starting price (RWF)" value={form.servicePrice} onChangeText={(value) => update('servicePrice', value)} keyboardType="number-pad" />
-        <WorldLocationFields value={form.location} onChange={(location) => update('location', location)} />
+        <ServiceLocationPicker
+          value={form.location}
+          onChange={(location) => update('location', location)}
+          title="Business location"
+          help="Search your place, select a result, and address fields plus the map pin fill in automatically."
+        />
         <TouchableOpacity style={styles.checkbox} onPress={() => update('acceptedTerms', !form.acceptedTerms)} activeOpacity={0.84}>
           <View style={[styles.box, form.acceptedTerms && styles.boxActive]}>
             {form.acceptedTerms ? <Feather name="check" size={13} color={colors.white} /> : null}
           </View>
-            <Text style={styles.checkboxText}>{CHECKBOX_COPY.register}</Text>
+            <Text style={styles.checkboxText}>{checkboxCopy.register}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.button, loading && styles.disabled]} onPress={submit} disabled={loading} activeOpacity={0.86}>
           {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.buttonText}>Create business account</Text>}

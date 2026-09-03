@@ -7,8 +7,6 @@ import { DateTimeField, MultilineField, NumberField, SelectField as ModalSelectF
 import { useAppDialog } from '../components/AppDialog';
 import OverflowMenu, { MenuTrigger } from '../components/OverflowMenu';
 import ServiceDetailsView from '../components/ServiceDetailsView';
-import ServiceLocationPicker from '../components/ServiceLocationPicker';
-import WorldLocationFields from '../components/WorldLocationFields';
 import {
   completeVerifiedSellerBooking,
   confirmRebookUnavailable,
@@ -31,12 +29,14 @@ import {
 import { fetchServiceCategories, serviceCategoryId, serviceCategoryLabel } from '../api/categories';
 import { fetchMarketplaceSettings } from '../api/services';
 import ServiceEditorModal from '../components/ServiceEditorModal';
+import { useToast } from '../components/Toast';
 import BookingQrScanner from '../components/BookingQrScanner';
 import BookingVerifyForm from '../components/BookingVerifyForm';
 import VerifiedBookingCard from '../components/VerifiedBookingCard';
 import BookingDetailCards from '../components/BookingDetailCards';
 import { extractBookingLookup, formatRwf } from '../lib/bookingVerification';
 import { normalizeServiceDetail } from '../lib/serviceMapper';
+import { inferStepFromAvailabilityGaps } from '../lib/serviceSteps';
 import { useAuth } from '../context/AuthContext';
 import { realtimeUserRooms, useRealtimeRefresh } from '../lib/realtime';
 import { lightColors } from '../theme/colors';
@@ -105,10 +105,12 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
   const [overflow, setOverflow] = useState({ visible: false, title: 'Actions', items: [] });
   const [viewService, setViewService] = useState(null);
   const [viewServiceLoading, setViewServiceLoading] = useState(false);
+  const [editorInitialStep, setEditorInitialStep] = useState(0);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [reviewBooking, setReviewBooking] = useState(null);
   const [reviewForm, setReviewForm] = useState({ totalPrice: '', paymentDeadlineHours: '24', paymentReason: 'Approved service payment', note: '', reason: '' });
   const { dialogNode, showResult, askConfirm, closeDialog } = useAppDialog();
+  const { toastNode, showToast } = useToast();
 
   const loadData = useCallback(async (silent = false) => {
     if (!isAuthenticated) return;
@@ -350,9 +352,10 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     }
   };
 
-  const beginEditBusiness = async (business) => {
+  const beginEditBusiness = async (business, step = 0) => {
     setEditingBusiness(business);
     setEditingOptions([]);
+    setEditorInitialStep(Number.isFinite(Number(step)) ? Number(step) : 0);
     setBusinessEditorOpen(true);
     setError('');
     if (business?._id || business?.id) {
@@ -423,7 +426,9 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         || Number(business.basePrice) > 0
         || hasOptions;
       if (!hasLocation || !hasPayout || !hasPriceRows) {
-        beginEditBusiness(business);
+        const step = inferStepFromAvailabilityGaps({ hasLocation, hasPriceRows });
+        beginEditBusiness(business, step);
+        showToast(t('seller.completeBeforeAvailability'), 'error');
         showResult(t('common.error'), t('seller.completeBeforeAvailability'), 'error');
         return;
       }
@@ -432,7 +437,7 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
       await loadData(true);
     } catch (err) {
       showResult(t('common.error'), getSaveErrorMessage(err, t('backend.availabilityFailed')), 'error');
-      beginEditBusiness(business);
+      beginEditBusiness(business, 0);
     } finally {
       setLoading(false);
     }
@@ -761,25 +766,6 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
           ))}
         </View>
       </ScrollView>
-
-      <ServiceEditorModal
-        visible={businessEditorOpen}
-        service={editingBusiness}
-        categories={serviceCategories}
-        existingOptions={editingOptions}
-        onClose={() => {
-          setBusinessEditorOpen(false);
-          setEditingBusiness(null);
-          setEditingOptions([]);
-        }}
-        onSaved={async () => {
-          showResult(t('common.success'), t('backend.businessSaved'));
-          setBusinessEditorOpen(false);
-          setEditingBusiness(null);
-          setEditingOptions([]);
-          await loadData(true);
-        }}
-      />
     </View>
   );
 
@@ -819,10 +805,13 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
             {(finance.transactions || []).map((tx) => (
               <View key={tx._id || tx.payoutReference} style={styles.businessCard}>
                 <Text style={styles.itemTitle}>{tx.bookingId?.bookingCode || tx.payoutReference || 'Payout'}</Text>
-                <Text style={styles.tableSummary}>Amount: RWF {Number(tx.amount || 0).toLocaleString()}</Text>
+                <Text style={styles.tableSummary}>Paid: RWF {Number(tx.amount || 0).toLocaleString()}</Text>
+                <Text style={styles.tableSummary}>Your share: RWF {Number(tx.providerAmount || tx.sellerEarnings || 0).toLocaleString()}</Text>
                 <Text style={styles.tableSummary}>Status: {labelStatus(tx.payoutStatus)}</Text>
-                <Text style={styles.tableSummary}>Account: {tx.payoutAccount || '-'}</Text>
-                <Text style={styles.itemDescription}>{tx.payoutMessage || ''}</Text>
+                {tx.payoutAccount ? <Text style={styles.tableSummary}>Account: {tx.payoutAccount}</Text> : null}
+                {tx.payoutStatus === 'failed' && tx.payoutMessage ? (
+                  <Text style={styles.statusNoteDanger}>{tx.payoutMessage}</Text>
+                ) : null}
               </View>
             ))}
             {!finance.transactions?.length ? <Text style={styles.managedText}>No payout transactions yet.</Text> : null}
@@ -863,8 +852,65 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
     );
   };
 
+  if (businessEditorOpen) {
+    return (
+      <View style={styles.container}>
+        <ServiceEditorModal
+          visible
+          presentation="page"
+          service={editingBusiness}
+          categories={serviceCategories}
+          existingOptions={editingOptions}
+          initialStep={editorInitialStep}
+          showToast={showToast}
+          onClose={() => {
+            setBusinessEditorOpen(false);
+            setEditingBusiness(null);
+            setEditingOptions([]);
+            setEditorInitialStep(0);
+          }}
+          onSaved={async () => {
+            showResult(t('common.success'), t('backend.businessSaved'));
+            setBusinessEditorOpen(false);
+            setEditingBusiness(null);
+            setEditingOptions([]);
+            setEditorInitialStep(0);
+            await loadData(true);
+          }}
+        />
+        {toastNode}
+        {dialogNode}
+      </View>
+    );
+  }
+
+  if (viewService) {
+    return (
+      <View style={styles.container}>
+        <ServiceDetailsView
+          visible
+          presentation="page"
+          service={viewService}
+          loading={viewServiceLoading}
+          showProvider={false}
+          showPrivateFields={false}
+          title={t('actions.view')}
+          onBack={() => setViewService(null)}
+          onEditStep={(stepIndex) => {
+            const listing = viewService;
+            setViewService(null);
+            beginEditBusiness(listing, stepIndex);
+          }}
+        />
+        {toastNode}
+        {dialogNode}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
+      {toastNode}
       {tab === 'analytics' && renderAnalytics()}
       {tab === 'bookings' && (!section || section === 'bookings') && renderBookings()}
       {tab === 'bookings' && section === 'rebook' && renderRebookRequests()}
@@ -876,14 +922,6 @@ export default function SellerDashboard({ tab, section = 'bookings', hideChrome 
         title={overflow.title}
         items={overflow.items}
         onClose={() => setOverflow({ visible: false, title: 'Actions', items: [] })}
-      />
-      <ServiceDetailsView
-        visible={Boolean(viewService)}
-        service={viewService}
-        loading={viewServiceLoading}
-        showProvider={false}
-        title={t('actions.view')}
-        onClose={() => setViewService(null)}
       />
       <BookingDetailModal booking={selectedBooking} onClose={() => setSelectedBooking(null)} />
       <BookingReviewModal

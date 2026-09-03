@@ -282,7 +282,7 @@
       "book": "R\u00e9server",
       "bookText": "Envoyer votre demande",
       "pay": "Payer en toute s\u00e9curit\u00e9",
-      "payText": "Payer l'acompte",
+      "payText": "Payez l'acompte en ligne (min. 20 %)",
       "unlock": "Voir les d\u00e9tails",
       "unlockText": "Voir les coordonn\u00e9es",
       "enjoy": "Profiter",
@@ -818,6 +818,11 @@
     "from": "A partir de",
     "night": "nuit",
     "viewDetails": "Voir details"
+  },
+  "paymentSheet": {
+    "title": "Payer l'acompte en ligne",
+    "help": "Payez l'acompte affiche ci-dessous. L'argent est conserve jusqu'a la fin du delai d'annulation.",
+    "exactAmountNote": "Votre telephone vous demandera d'approuver exactement ce montant."
   },
   "mockServices": {
     "hotelCategory": "Hotel et hebergement",

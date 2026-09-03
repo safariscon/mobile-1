@@ -4,7 +4,7 @@ import Feather from '@expo/vector-icons/Feather';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import PolicyLinks from '../components/PolicyLinks';
-import { CHECKBOX_COPY } from '../lib/policyContent';
+import { buildCheckboxCopy } from '../lib/policyContent';
 import { lightColors } from '../theme/colors';
 import { baseInputStyle, passwordFieldStyle } from '../theme/inputStyles';
 import useThemedStyles from '../theme/useThemedStyles';
@@ -19,6 +19,7 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
   colors = themed.colors;
   styles = themed.styles;
   const { t } = useTranslation();
+  const checkboxCopy = buildCheckboxCopy(t);
   const { register, loading } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -91,7 +92,7 @@ export default function RegisterScreen({ onBack, onNavigateToLogin, onNavigateTo
             <View style={[styles.box, acceptedTerms && styles.boxActive]}>
               {acceptedTerms ? <Feather name="check" size={13} color={colors.white} /> : null}
             </View>
-            <Text style={styles.checkboxText}>{CHECKBOX_COPY.register}</Text>
+            <Text style={styles.checkboxText}>{checkboxCopy.register}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading} activeOpacity={0.86}>
