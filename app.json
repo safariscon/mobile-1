@@ -26,8 +26,7 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.CAMERA"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
@@ -58,10 +57,11 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font"
     ],
     "extra": {
-    "eas": {
+      "eas": {
         "projectId": "8004554f-2a3c-42f9-9fc2-7d06a23e295e"
       }
     }

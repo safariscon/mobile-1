@@ -7,14 +7,20 @@
     "start:online": "expo start",
     "android": "adb reverse tcp:5000 tcp:5000 && expo start --android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:apk": "powershell -ExecutionPolicy Bypass -File ./scripts/build-android-apk.ps1"
+  },
+  "overrides": {
+    "expo-font": "~14.0.12"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-native-community/datetimepicker": "8.4.4",
-    "expo": "~54.0.34",
+    "expo": "~54.0.37",
     "expo-camera": "~17.0.10",
+    "expo-constants": "18.0.14",
     "expo-contacts": "~15.0.11",
+    "expo-font": "~14.0.12",
     "expo-image-picker": "~17.0.11",
     "expo-linking": "~8.0.12",
     "expo-localization": "~17.0.9",
